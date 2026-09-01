@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>LocalScope Admin</title>
+
+    <link rel="stylesheet" href="/__localscope/static/css/style.css" />
+  </head>
+
+  <body>
+    <div class="admin-shell">
+      <!-- =========================================
+         SIDEBAR
+    ========================================== -->
+
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-logo">LS</div>
+
+          <div class="brand-text">
+            <strong>LocalScope</strong>
+            <span>Admin Console</span>
+          </div>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-page="overview">
+            <span class="nav-icon"> ◫ </span>
+
+            <span> Overview </span>
+          </button>
+
+          <button class="nav-item" data-page="accounts">
+            <span class="nav-icon"> ◉ </span>
+
+            <span> Accounts </span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="proxy-status">
+            <span class="status-dot"></span>
+
+            <div>
+              <strong> Proxy Active </strong>
+
+              <small> semrush.com </small>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- =========================================
+         MAIN
+    ========================================== -->
+
+      <main class="admin-main">
+        <!-- =====================================
+             TOP BAR
+        ====================================== -->
+
+        <header class="topbar">
+          <div>
+            <h1 id="page-title">Overview</h1>
+
+            <p id="page-description">
+              Monitor and control your LocalScope proxy.
+            </p>
+          </div>
+
+          <div class="topbar-actions">
+            <a href="/" target="_blank" class="open-target-button">
+              Open Semrush
+              <span>↗</span>
+            </a>
+
+            <form
+              action="/__localscope/logout"
+              method="post"
+              class="logout-form"
+            >
+              <button type="submit" class="logout-button">Logout</button>
+            </form>
+          </div>
+        </header>
+
+        <!-- =====================================
+             OVERVIEW PAGE
+        ====================================== -->
+
+        <section id="page-overview" class="admin-page active">
+          <!-- Statistics -->
+
+          <div class="stats-grid">
+            <article class="stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label"> Total Accounts </span>
+
+                <span class="stat-icon"> ◉ </span>
+              </div>
+
+              <strong id="stat-total-accounts" class="stat-value"> 0 </strong>
+
+              <span class="stat-caption"> Accounts configured </span>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label"> Enabled </span>
+
+                <span class="stat-icon success"> ● </span>
+              </div>
+
+              <strong id="stat-enabled-accounts" class="stat-value"> 0 </strong>
+
+              <span class="stat-caption"> Available for users </span>
+            </article>
+
+            <article class="stat-card">
+              <div class="stat-card-top">
+                <span class="stat-label"> Browser Sessions </span>
+
+                <span class="stat-icon"> ◌ </span>
+              </div>
+
+              <strong id="stat-browser-sessions" class="stat-value"> 0 </strong>
+
+              <span class="stat-caption"> Active LocalScope assignments </span>
+            </article>
+          </div>
+
+          <!-- System status -->
+
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Proxy Status</h2>
+
+                  <p>Current target and runtime information.</p>
+                </div>
+              </div>
+
+              <div class="status-list">
+                <div class="status-row">
+                  <span> Target </span>
+
+                  <strong> https://www.semrush.com </strong>
+                </div>
+
+                <div class="status-row">
+                  <span> Proxy </span>
+
+                  <strong class="text-success"> Running </strong>
+                </div>
+
+                <div class="status-row">
+                  <span> Account distribution </span>
+
+                  <strong> Round Robin </strong>
+                </div>
+
+                <div class="status-row">
+                  <span> Session persistence </span>
+
+                  <strong> Browser Session </strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Quick Actions</h2>
+
+                  <p>Common administration actions.</p>
+                </div>
+              </div>
+
+              <div class="quick-actions">
+                <button class="quick-action" data-open-page="accounts">
+                  <span>＋</span>
+
+                  <div>
+                    <strong> Add Account </strong>
+
+                    <small> Add a Semrush session </small>
+                  </div>
+                </button>
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <!-- =====================================
+             ACCOUNTS PAGE
+        ====================================== -->
+
+        <section id="page-accounts" class="admin-page">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Semrush Accounts</h2>
+
+                <p>
+                  Enabled accounts are automatically distributed across
+                  LocalScope users.
+                </p>
+              </div>
+
+              <button id="show-add-account" class="primary-button">
+                <span>＋</span>
+                Add Account
+              </button>
+            </div>
+
+            <div class="account-table-header">
+              <div>Account</div>
+
+              <div>Status</div>
+
+              <div>Users</div>
+
+              <div>Actions</div>
+            </div>
+
+            <div id="accounts-list" class="accounts-list">
+              <div class="loading-state">Loading accounts...</div>
+            </div>
+          </section>
+        </section>
+
+      </main>
+    </div>
+
+    <!-- =========================================
+     ADD ACCOUNT MODAL
+========================================== -->
+
+    <div id="account-modal" class="modal-backdrop hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h2>Add Semrush Account</h2>
+
+            <p>Paste the authenticated Cookie request header.</p>
+          </div>
+
+          <button id="close-account-modal" class="icon-button" type="button">
+            ×
+          </button>
+        </div>
+
+        <form id="account-form">
+          <div class="form-group">
+            <label for="account-name"> Account Name </label>
+
+            <input
+              id="account-name"
+              type="text"
+              placeholder="Semrush Account 1"
+              autocomplete="off"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="account-cookie"> Cookie </label>
+
+            <textarea
+              id="account-cookie"
+              rows="9"
+              placeholder="Paste Cookie header value here..."
+              required
+            ></textarea>
+
+            <small class="field-help">
+              Cookie values remain server-side and are never displayed to
+              LocalScope users.
+            </small>
+          </div>
+
+          <div class="modal-actions">
+            <button
+              id="cancel-add-account"
+              type="button"
+              class="secondary-button"
+            >
+              Cancel
+            </button>
+
+            <button type="submit" class="primary-button">Save Account</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- =========================================
+     NOTIFICATION
+========================================== -->
+
+    <div id="toast" class="toast hidden">
+      <span id="toast-message"></span>
+    </div>
+
+    <script src="/__localscope/static/js/app.js"></script>
+  </body>
+</html>

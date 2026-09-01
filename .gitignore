@@ -1,0 +1,62 @@
+# =========================
+# Python virtual environment
+# =========================
+
+.venv/
+venv/
+
+
+# =========================
+# Environment / secrets
+# =========================
+
+.env
+.env.*
+
+
+# But allow our safe example file
+!.env.example
+
+
+# =========================
+# LocalScope database
+# =========================
+
+localscope.db
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+
+# =========================
+# Python generated files
+# =========================
+
+__pycache__/
+*.py[cod]
+
+
+# =========================
+# Test/cache files
+# =========================
+
+.pytest_cache/
+.coverage
+htmlcov/
+
+
+# =========================
+# IDE files
+# =========================
+
+.vscode/
+.idea/
+
+
+# =========================
+# Operating system files
+# =========================
+
+.DS_Store
+Thumbs.db
