@@ -1,4 +1,4 @@
-name: Test Workflow
+name: Deploy LocalScope
 
 on:
   push:
@@ -6,9 +6,17 @@ on:
       - main
 
 jobs:
-  test:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Say hello
-        run: echo "GitHub Actions is working!"
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/localscope-semrush
+            git pull origin main
+            sudo systemctl restart localscope
