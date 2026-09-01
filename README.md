@@ -354,3 +354,6 @@ Read `docs/ARCHITECTURE.md` for:
 -   streaming and WebSocket behavior;
 -   access-policy enforcement;
 -   frontend/admin responsibilities.
+
+
+Git workflow practice.
