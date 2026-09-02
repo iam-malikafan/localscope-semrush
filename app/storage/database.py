@@ -3,6 +3,8 @@ from app.accounts.models import Account
 from app.security.cookie_crypto import (
     encrypt_cookie,
     decrypt_cookie,
+    encrypt_secret,
+    decrypt_secret,
 )
 
 DATABASE_PATH = "localscope.db"
@@ -26,9 +28,25 @@ def initialize_database():
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
                 cookie TEXT NOT NULL,
-                enabled INTEGER NOT NULL DEFAULT 0
+                enabled INTEGER NOT NULL DEFAULT 0,
+                proxy_url TEXT
             )
             """)
+
+        columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(accounts)").fetchall()
+        }
+
+        if "proxy_url" not in columns:
+            connection.execute(
+                "ALTER TABLE accounts ADD COLUMN proxy_url TEXT"
+            )
+
+        # Existing accounts cannot safely be enabled until a proxy is configured.
+        connection.execute(
+            "UPDATE accounts SET enabled = 0 WHERE proxy_url IS NULL"
+        )
 
         connection.commit()
 
@@ -45,15 +63,17 @@ def save_account(
                 id,
                 name,
                 cookie,
-                enabled
+                enabled,
+                proxy_url
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             (
                 account.id,
                 account.name,
                 encrypt_cookie(account.cookie),
                 int(account.enabled),
+                encrypt_secret(account.proxy_url) if account.proxy_url else None,
             ),
         )
 
@@ -69,7 +89,8 @@ def load_accounts() -> list[Account]:
                 id,
                 name,
                 cookie,
-                enabled
+                enabled,
+                proxy_url
             FROM accounts
             ORDER BY rowid
             """).fetchall()
@@ -79,6 +100,7 @@ def load_accounts() -> list[Account]:
             id=row["id"],
             name=row["name"],
             cookie=decrypt_cookie(row["cookie"]),
+            proxy_url=(decrypt_secret(row["proxy_url"]) if row["proxy_url"] else None),
             enabled=bool(row["enabled"]),
         )
         for row in rows

@@ -23,14 +23,14 @@ def get_cipher() -> Fernet:
     )
 
 
-def encrypt_cookie(
-    cookie: str,
+def encrypt_secret(
+    value: str,
 ) -> str:
 
     cipher = get_cipher()
 
     encrypted = cipher.encrypt(
-        cookie.encode("utf-8")
+        value.encode("utf-8")
     )
 
     return encrypted.decode(
@@ -38,8 +38,8 @@ def encrypt_cookie(
     )
 
 
-def decrypt_cookie(
-    encrypted_cookie: str,
+def decrypt_secret(
+    encrypted_value: str,
 ) -> str:
 
     cipher = get_cipher()
@@ -47,7 +47,7 @@ def decrypt_cookie(
     try:
 
         decrypted = cipher.decrypt(
-            encrypted_cookie.encode(
+            encrypted_value.encode(
                 "utf-8"
             )
         )
@@ -55,10 +55,18 @@ def decrypt_cookie(
     except InvalidToken as error:
 
         raise RuntimeError(
-            "Stored account cookie "
+            "Stored encrypted value "
             "could not be decrypted"
         ) from error
 
     return decrypted.decode(
         "utf-8"
     )
+
+# Backwards-compatible names for account cookie encryption.
+def encrypt_cookie(cookie: str) -> str:
+    return encrypt_secret(cookie)
+
+
+def decrypt_cookie(encrypted_cookie: str) -> str:
+    return decrypt_secret(encrypted_cookie)

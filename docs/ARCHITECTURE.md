@@ -1205,3 +1205,24 @@ into five layers:
 
 `main.py` coordinates those layers. The smaller modules exist so each
 layer can be understood and maintained independently.
+
+## Per-account proxy routing
+
+Account records now include an encrypted proxy URL. At runtime, LocalScope maintains one reusable HTTPX client per account, with that client's `proxy` configured from the account's decrypted proxy URL.
+
+Request flow:
+
+```text
+Browser session
+      |
+      v
+Account selector
+      |
+      v
+Account A ----------------> HTTPX client A --> Proxy A --> Semrush
+Account B ----------------> HTTPX client B --> Proxy B --> Semrush
+```
+
+Proxy credentials are never returned by the admin API. The account list only exposes whether a proxy exists, its host/port, and proxy health status.
+
+The proxy health endpoint performs an unauthenticated request to Semrush. This verifies the proxy/network path independently from the stored Semrush account cookie.

@@ -8,7 +8,7 @@ from fastapi import Form,Depends,HTTPException
 from fastapi.responses import RedirectResponse
 import asyncio
 from uuid import uuid4
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, quote
 from contextlib import asynccontextmanager
 import httpx
 from fastapi import (
@@ -58,6 +58,7 @@ from app.accounts.health import (
 )
 from app.accounts.health_check import (
     check_account_health,
+    check_proxy_health,
 )
 from app.accounts.session_cleanup import (
     cleanup_stale_sessions,
@@ -83,7 +84,7 @@ load_dotenv()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.http_client = httpx.AsyncClient(follow_redirects=False, timeout=30.0)
+    app.state.account_clients = {}
 
     app.state.target = TargetConfig("https://www.semrush.com")
 
@@ -120,7 +121,58 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    await app.state.http_client.aclose()
+    for client in app.state.account_clients.values():
+        await client.aclose()
+
+
+async def get_account_client(app: FastAPI, account):
+    """Return the reusable HTTPX client bound to an account proxy."""
+    if not account.proxy_url:
+        raise RuntimeError("Account proxy is not configured")
+
+    client = app.state.account_clients.get(account.id)
+    if client is None or client.is_closed:
+        client = httpx.AsyncClient(
+            proxy=account.proxy_url,
+            follow_redirects=False,
+            timeout=30.0,
+        )
+        app.state.account_clients[account.id] = client
+
+    return client
+
+
+async def close_account_client(app: FastAPI, account_id: str):
+    client = app.state.account_clients.pop(account_id, None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
+
+
+def build_proxy_url(data: dict) -> str | None:
+    scheme = str(data.get("proxy_scheme", "http")).strip().lower()
+    host = str(data.get("proxy_host", "")).strip()
+    port = data.get("proxy_port")
+    username = str(data.get("proxy_username", "")).strip()
+    password = str(data.get("proxy_password", ""))
+
+    if scheme not in {"http", "https"}:
+        raise ValueError("Proxy scheme must be http or https")
+    if not host:
+        raise ValueError("Proxy host is required")
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise ValueError("Proxy port must be a number")
+    if not 1 <= port <= 65535:
+        raise ValueError("Proxy port must be between 1 and 65535")
+
+    auth = ""
+    if username or password:
+        if not username or not password:
+            raise ValueError("Both proxy username and password are required")
+        auth = f"{quote(username, safe='')}:{quote(password, safe='')}@"
+
+    return f"{scheme}://{auth}{host}:{port}"
 
 
 app = FastAPI(lifespan=lifespan)
@@ -260,7 +312,7 @@ async def handle_proxy_request(
 
             health, status_code = (
                 await check_account_health(
-                    client=request.app.state.http_client,
+                    client=await get_account_client(request.app, account),
                     cookie=account.cookie,
                 )
             )
@@ -344,7 +396,13 @@ async def handle_proxy_request(
     )
 
 
-    client = request.app.state.http_client
+    try:
+        client = await get_account_client(request.app, account)
+    except RuntimeError as error:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "proxy_not_configured", "message": str(error)},
+        )
 
     try:
 
@@ -887,6 +945,26 @@ async def websocket_proxy(
         )
     )
 
+    session_id = websocket.cookies.get("localscope_session")
+    if not session_id:
+        session_id = str(uuid4())
+
+    websocket.state.localscope_session = session_id
+    websocket.app.state.session_last_seen[session_id] = time()
+
+    account = select_account_for_session(
+        app=websocket.app,
+        session_id=session_id,
+    )
+
+    if not account:
+        await websocket.close(code=1013, reason="No Semrush account available")
+        return
+
+    if not account.proxy_url:
+        await websocket.close(code=1013, reason="Account proxy is not configured")
+        return
+
     requested_protocols = (
         websocket.headers.get(
             "sec-websocket-protocol"
@@ -927,6 +1005,7 @@ async def websocket_proxy(
         async with connect(
             target_url,
             origin=upstream_origin,
+            proxy=account.proxy_url,
             subprotocols=(
                 subprotocols
                 if subprotocols
@@ -1051,6 +1130,14 @@ async def add_account(
         .strip()
     )
 
+    try:
+        proxy_url = build_proxy_url(data)
+    except ValueError as error:
+        return JSONResponse(
+            status_code=400,
+            content={"error": str(error)},
+        )
+
 
     if not name:
 
@@ -1073,10 +1160,16 @@ async def add_account(
             },
         )
 
+    if not proxy_url:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Proxy configuration is required"},
+        )
 
     account = create_account(
         name=name,
         cookie=cookie,
+        proxy_url=proxy_url,
     )
 
     request.app.state.accounts.append(
@@ -1126,6 +1219,11 @@ async def list_accounts(
                 == account.id
             ),
             "health": account.health,
+            "has_proxy": bool(account.proxy_url),
+            "proxy_host": (urlsplit(account.proxy_url).hostname if account.proxy_url else None),
+            "proxy_port": (urlsplit(account.proxy_url).port if account.proxy_url else None),
+            "proxy_health": getattr(account, "proxy_health", "unknown"),
+            "proxy_status_code": getattr(account, "proxy_status_code", None),
             "last_status_code":
                 account.last_status_code,
         }
@@ -1133,6 +1231,39 @@ async def list_accounts(
         for account
         in request.app.state.accounts
     ]
+
+@app.post(
+    "/__localscope/api/accounts/{account_id}/proxy-health"
+)
+async def proxy_health(
+    request: Request,
+    account_id: str,
+    _: None = Depends(require_admin),
+):
+    for account in request.app.state.accounts:
+        if account.id == account_id:
+            if not account.proxy_url:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Proxy is not configured"},
+                )
+
+            health, status_code, message = await check_proxy_health(account.proxy_url)
+            account.proxy_health = health
+            account.proxy_status_code = status_code
+
+            return {
+                "id": account.id,
+                "proxy_health": health,
+                "proxy_status_code": status_code,
+                "message": message,
+            }
+
+    return JSONResponse(
+        status_code=404,
+        content={"error": "Account not found"},
+    )
+
 
 @app.post(
     "/__localscope/api/accounts/{account_id}/enable"
@@ -1155,12 +1286,23 @@ async def enable_account(
             )
 
 
-            health, status_code = (
-                await check_account_health(
-                    client=request.app.state.http_client,
-                    cookie=account.cookie,
+            try:
+                health, status_code = (
+                    await check_account_health(
+                        client=await get_account_client(request.app, account),
+                        cookie=account.cookie,
+                    )
                 )
-            )
+            except RuntimeError as error:
+                account.enabled = False
+                update_account_enabled(
+                    account_id=account.id,
+                    enabled=False,
+                )
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": str(error)},
+                )
 
 
             account.health = health
@@ -1238,6 +1380,7 @@ async def delete_account(
         if account.id == account_id:
 
             accounts.pop(index)
+            await close_account_client(request.app, account_id)
             delete_account_from_database(
                 account_id
             )

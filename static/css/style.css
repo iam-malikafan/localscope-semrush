@@ -746,7 +746,7 @@ a {
         minmax(220px, 2fr)
         minmax(110px, 0.7fr)
         minmax(80px, 0.6fr)
-        minmax(180px, 1fr);
+        minmax(260px, 1.5fr);
 
     align-items: center;
 
@@ -872,8 +872,21 @@ a {
 .account-actions {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
 
     gap: 7px;
+}
+
+.proxy-summary {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-muted);
+    font-size: 9px;
+}
+
+.account-action-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .account-action-button {
@@ -1202,6 +1215,33 @@ textarea:focus {
     flex-direction: column;
 
     gap: 16px;
+}
+
+.proxy-fields {
+    display: grid;
+    grid-template-columns: 100px minmax(0, 1fr) 110px;
+    gap: 8px;
+}
+
+.proxy-auth-fields {
+    grid-template-columns: 1fr 1fr;
+    margin-top: 8px;
+}
+
+.proxy-fields input,
+.proxy-fields select {
+    width: 100%;
+}
+
+.proxy-fields select {
+    height: 44px;
+    padding: 0 11px;
+    color: var(--text);
+    background: #0c121b;
+    border: 1px solid var(--border-light);
+    border-radius: 7px;
+    outline: none;
+    font-size: 12px;
 }
 
 .modal-actions {

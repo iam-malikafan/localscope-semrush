@@ -34,6 +34,12 @@ const accountNameInput = document.getElementById("account-name");
 
 const accountCookieInput = document.getElementById("account-cookie");
 
+const proxySchemeInput = document.getElementById("proxy-scheme");
+const proxyHostInput = document.getElementById("proxy-host");
+const proxyPortInput = document.getElementById("proxy-port");
+const proxyUsernameInput = document.getElementById("proxy-username");
+const proxyPasswordInput = document.getElementById("proxy-password");
+
 const toast = document.getElementById("toast");
 
 const toastMessage = document.getElementById("toast-message");
@@ -208,6 +214,11 @@ function renderAccounts() {
                             ${formatHealth(account.health)}
                         </span>
 
+                        <small class="proxy-summary">
+                            Proxy: ${account.has_proxy ? `${escapeHtml(account.proxy_host)}:${escapeHtml(account.proxy_port)}` : "Not configured"}
+                            · ${formatHealth(account.proxy_health)}
+                        </small>
+
                     </div>
 
 
@@ -223,12 +234,19 @@ function renderAccounts() {
 
                         <button
                             class="account-action-button"
+                            data-proxy-health="${account.id}"
+                            ${account.has_proxy ? "" : "disabled"}
+                        >
+                            Check Proxy
+                        </button>
+
+                        <button
+                            class="account-action-button"
                             data-account-toggle="${account.id}"
                             data-enabled="${account.enabled}"
                         >
                             ${account.enabled ? "Disable" : "Enable"}
                         </button>
-
 
                         <button
                             class="danger-button"
@@ -293,12 +311,54 @@ function bindAccountButtons() {
     });
   });
 
+  document.querySelectorAll("[data-proxy-health]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await checkProxyHealth(button.dataset.proxyHealth, button);
+    });
+  });
+
   document.querySelectorAll("[data-account-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       await deleteAccount(button.dataset.accountDelete);
     });
   });
 }
+
+async function checkProxyHealth(accountId, button) {
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Checking...";
+
+  try {
+    const response = await fetch(`${API.accounts}/${accountId}/proxy-health`, {
+      method: "POST",
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || "Proxy health check failed.");
+    }
+
+    if (result.proxy_health === "healthy") {
+      showToast(
+        `Proxy is healthy (Semrush HTTP ${result.proxy_status_code}).`,
+        "success",
+      );
+    } else {
+      showToast(result.message || "Proxy check failed.", "error");
+    }
+
+    await loadAccounts();
+  } catch (error) {
+    console.error("Proxy health check failed:", error);
+    showToast(error.message || "Could not check proxy.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
 
 async function toggleAccount(accountId, currentlyEnabled) {
   const action = currentlyEnabled ? "disable" : "enable";
@@ -397,6 +457,11 @@ accountForm.addEventListener("submit", async (event) => {
   const name = accountNameInput.value.trim();
 
   const cookie = accountCookieInput.value.trim();
+  const proxyScheme = proxySchemeInput.value;
+  const proxyHost = proxyHostInput.value.trim();
+  const proxyPort = proxyPortInput.value.trim();
+  const proxyUsername = proxyUsernameInput.value.trim();
+  const proxyPassword = proxyPasswordInput.value;
 
   if (!name) {
     showToast("Account name is required.", "error");
@@ -406,6 +471,18 @@ accountForm.addEventListener("submit", async (event) => {
 
   if (!cookie) {
     showToast("Cookie is required.", "error");
+
+    return;
+  }
+
+  if (!proxyHost || !proxyPort) {
+    showToast("Proxy host and port are required.", "error");
+
+    return;
+  }
+
+  if ((proxyUsername && !proxyPassword) || (!proxyUsername && proxyPassword)) {
+    showToast("Both proxy username and password are required.", "error");
 
     return;
   }
@@ -421,6 +498,11 @@ accountForm.addEventListener("submit", async (event) => {
       body: JSON.stringify({
         name,
         cookie,
+        proxy_scheme: proxyScheme,
+        proxy_host: proxyHost,
+        proxy_port: proxyPort,
+        proxy_username: proxyUsername,
+        proxy_password: proxyPassword,
       }),
     });
 

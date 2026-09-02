@@ -357,3 +357,17 @@ Read `docs/ARCHITECTURE.md` for:
 
 
 Git workflow practice.
+## Per-account proxy support
+
+Each Semrush account can be configured with its own HTTP/HTTPS proxy. Proxy credentials are encrypted before being stored in SQLite, just like account cookies.
+
+The admin account form accepts:
+
+- Proxy scheme: `http` or `https`
+- Proxy host/IP
+- Proxy port
+- Optional proxy username/password
+
+LocalScope creates a reusable HTTPX client for each account, so requests assigned to an account use that account's proxy. Account health checks also use the account's proxy.
+
+The Accounts page includes **Check Proxy**, which tests whether the configured proxy can reach Semrush. A successful proxy check does not mean the Semrush cookie is valid; account authentication is checked separately.
