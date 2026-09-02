@@ -7,7 +7,7 @@
    ========================================================= */
 
 const API = {
-  accounts: "/__localscope/api/accounts",
+  accounts: "/localscope/api/accounts",
 
 
 };

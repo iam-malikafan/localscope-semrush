@@ -191,8 +191,8 @@ async def localscope_session_middleware(
     # LocalScope admin/internal routes
     # should not create user sessions.
     if (
-        path.startswith("/__localscope/")
-        or path == "/__localscope"
+        path.startswith("/localscope/")
+        or path == "/localscope"
     ):
         return await call_next(
             request
@@ -245,14 +245,14 @@ async def localscope_session_middleware(
     return response
  
 app.mount(
-    "/__localscope/static",
+    "/localscope/static",
     StaticFiles(directory="static"),
     name="localscope-static",
 )
 templates = Jinja2Templates(directory="templates")
 
 
-@app.get("/__localscope/")
+@app.get("/localscope/")
 async def home(
     request: Request,
 ):
@@ -262,7 +262,7 @@ async def home(
     ):
 
         return RedirectResponse(
-            url="/__localscope/login",
+            url="/localscope/login",
             status_code=302,
         )
 
@@ -811,7 +811,7 @@ def is_admin_authenticated(
 
 
 @app.get(
-    "/__localscope/login"
+    "/localscope/login"
 )
 async def admin_login_page(
     request: Request,
@@ -822,7 +822,7 @@ async def admin_login_page(
     ):
 
         return RedirectResponse(
-            url="/__localscope/",
+            url="/localscope/",
             status_code=302,
         )
 
@@ -835,7 +835,7 @@ async def admin_login_page(
     )
 
 @app.post(
-    "/__localscope/login"
+    "/localscope/login"
 )
 async def admin_login(
     request: Request,
@@ -879,7 +879,7 @@ async def admin_login(
 
 
     response = RedirectResponse(
-        url="/__localscope/",
+        url="/localscope/",
         status_code=303,
     )
 
@@ -888,14 +888,14 @@ async def admin_login(
         value=session_id,
         httponly=True,
         samesite="strict",
-        path="/__localscope",
+        path="/localscope",
     )
 
     return response
 
 
 @app.post(
-    "/__localscope/logout"
+    "/localscope/logout"
 )
 async def admin_logout(
     request: Request,
@@ -913,13 +913,13 @@ async def admin_logout(
 
 
     response = RedirectResponse(
-        url="/__localscope/login",
+        url="/localscope/login",
         status_code=303,
     )
 
     response.delete_cookie(
         "localscope_admin_session",
-        path="/__localscope",
+        path="/localscope",
     )
 
     return response
@@ -1111,7 +1111,7 @@ async def websocket_proxy(
 # ACCOUNTS ROUTES
 # =============================
 @app.post(
-    "/__localscope/api/accounts"
+    "/localscope/api/accounts"
 )
 async def add_account(
     request: Request,
@@ -1189,7 +1189,7 @@ async def add_account(
     }
 
 @app.get(
-    "/__localscope/api/accounts"
+    "/localscope/api/accounts"
 )
 async def list_accounts(
     request: Request,
@@ -1233,7 +1233,7 @@ async def list_accounts(
     ]
 
 @app.post(
-    "/__localscope/api/accounts/{account_id}/proxy-health"
+    "/localscope/api/accounts/{account_id}/proxy-health"
 )
 async def proxy_health(
     request: Request,
@@ -1266,7 +1266,7 @@ async def proxy_health(
 
 
 @app.post(
-    "/__localscope/api/accounts/{account_id}/enable"
+    "/localscope/api/accounts/{account_id}/enable"
 )
 async def enable_account(
     request: Request,
@@ -1329,7 +1329,7 @@ async def enable_account(
     )
 
 @app.post(
-    "/__localscope/api/accounts/{account_id}/disable"
+    "/localscope/api/accounts/{account_id}/disable"
 )
 async def disable_account(
     request: Request,
@@ -1363,7 +1363,7 @@ async def disable_account(
     )
 
 @app.delete(
-    "/__localscope/api/accounts/{account_id}"
+    "/localscope/api/accounts/{account_id}"
 )
 async def delete_account(
     request: Request,

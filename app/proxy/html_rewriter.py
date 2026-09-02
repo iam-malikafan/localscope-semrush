@@ -171,7 +171,7 @@ def rewrite_html(
 
         runtime_script = soup.new_tag(
             "script",
-            src="/__localscope/static/js/runtime_proxy.js",
+            src="/localscope/static/js/runtime_proxy.js",
         )
 
         runtime_script["data-localscope-runtime"] = "true"
@@ -200,7 +200,7 @@ def rewrite_html(
 
         runtime_script = soup.new_tag(
             "script",
-            src="/__localscope/static/js/runtime_proxy.js",
+            src="/localscope/static/js/runtime_proxy.js",
         )
 
         runtime_script["data-localscope-runtime"] = "true"
