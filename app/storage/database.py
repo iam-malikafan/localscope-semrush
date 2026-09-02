@@ -166,3 +166,71 @@ def delete_account_from_database(
         )
 
         connection.commit()
+
+
+
+
+def update_account(
+    account_id: str,
+    name: str,
+    cookie: str | None,
+    proxy_url: str | None,
+):
+    with get_connection() as connection:
+        if cookie is not None and proxy_url is not None:
+            connection.execute(
+                """
+                UPDATE accounts
+                SET name = ?, cookie = ?, proxy_url = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    encrypt_cookie(cookie),
+                    encrypt_secret(proxy_url),
+                    account_id,
+                ),
+            )
+
+        elif cookie is not None:
+            connection.execute(
+                """
+                UPDATE accounts
+                SET name = ?, cookie = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    encrypt_cookie(cookie),
+                    account_id,
+                ),
+            )
+
+        elif proxy_url is not None:
+            connection.execute(
+                """
+                UPDATE accounts
+                SET name = ?, proxy_url = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    encrypt_secret(proxy_url),
+                    account_id,
+                ),
+            )
+
+        else:
+            connection.execute(
+                """
+                UPDATE accounts
+                SET name = ?
+                WHERE id = ?
+                """,
+                (
+                    name,
+                    account_id,
+                ),
+            )
+
+        connection.commit()

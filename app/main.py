@@ -8,7 +8,7 @@ from fastapi import Form,Depends,HTTPException
 from fastapi.responses import RedirectResponse
 import asyncio
 from uuid import uuid4
-from urllib.parse import urlsplit, quote
+from urllib.parse import urlsplit, quote,unquote
 from contextlib import asynccontextmanager
 import httpx
 from fastapi import (
@@ -76,6 +76,7 @@ from app.storage.database import (
     update_account_enabled,
     update_account_cookie as save_account_cookie,
     delete_account_from_database,
+    update_account,
 )
 
 
@@ -1188,6 +1189,118 @@ async def add_account(
         "enabled": account.enabled
     }
 
+@app.put("/localscope/api/accounts/{account_id}")
+async def edit_account(
+    request: Request,
+    account_id: str,
+    _: None = Depends(require_admin),
+):
+    data = await request.json()
+
+    account = next(
+        (
+            account
+            for account in request.app.state.accounts
+            if account.id == account_id
+        ),
+        None,
+    )
+
+    if account is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Account not found"},
+        )
+
+    name = str(data.get("name", "")).strip()
+
+    if not name:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Account name is required"},
+        )
+
+    cookie = data.get("cookie")
+    if cookie is not None:
+        cookie = str(cookie).strip()
+
+        if not cookie:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Cookie cannot be empty when provided"},
+            )
+
+    proxy_url = None
+
+    proxy_fields_present = any(
+        field in data
+        for field in (
+            "proxy_scheme",
+            "proxy_host",
+            "proxy_port",
+            "proxy_username",
+            "proxy_password",
+        )
+    )
+
+    if proxy_fields_present:
+        proxy_username = str(data.get("proxy_username", "")).strip()
+        proxy_password = str(data.get("proxy_password", ""))
+
+        existing_proxy = urlsplit(account.proxy_url) if account.proxy_url else None
+
+        # If credentials are left blank during editing,
+        # keep the existing proxy credentials.
+        if existing_proxy and not proxy_username and not proxy_password:
+            proxy_username = existing_proxy.username or ""
+            proxy_password = (
+                unquote(existing_proxy.password)
+                if existing_proxy.password
+                else ""
+            )
+
+        proxy_data = {
+            "proxy_scheme": data.get("proxy_scheme", "http"),
+            "proxy_host": data.get("proxy_host", ""),
+            "proxy_port": data.get("proxy_port"),
+            "proxy_username": proxy_username,
+            "proxy_password": proxy_password,
+        }
+
+        try:
+            proxy_url = build_proxy_url(proxy_data)
+        except ValueError as error:
+            return JSONResponse(
+                status_code=400,
+                content={"error": str(error)},
+            )
+
+    old_proxy_url = account.proxy_url
+
+    if proxy_url is not None and proxy_url != old_proxy_url:
+        await close_account_client(request.app, account.id)
+
+    account.name = name
+
+    if cookie is not None:
+        account.cookie = cookie
+
+    if proxy_url is not None:
+        account.proxy_url = proxy_url
+
+    update_account(
+        account_id=account.id,
+        name=account.name,
+        cookie=cookie,
+        proxy_url=proxy_url,
+    )
+
+    return {
+        "id": account.id,
+        "name": account.name,
+        "enabled": account.enabled,
+    }
+
 @app.get(
     "/localscope/api/accounts"
 )
@@ -1222,6 +1335,11 @@ async def list_accounts(
             "has_proxy": bool(account.proxy_url),
             "proxy_host": (urlsplit(account.proxy_url).hostname if account.proxy_url else None),
             "proxy_port": (urlsplit(account.proxy_url).port if account.proxy_url else None),
+            "proxy_scheme": (urlsplit(account.proxy_url).scheme if account.proxy_url else None),
+            "proxy_has_auth": bool(
+                account.proxy_url
+                and urlsplit(account.proxy_url).username
+            ),
             "proxy_health": getattr(account, "proxy_health", "unknown"),
             "proxy_status_code": getattr(account, "proxy_status_code", None),
             "last_status_code":

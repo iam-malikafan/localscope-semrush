@@ -244,9 +244,11 @@
       <div class="modal">
         <div class="modal-header">
           <div>
-            <h2>Add Semrush Account</h2>
+            <h2 id="account-modal-title">Add Semrush Account</h2>
 
-            <p>Paste the authenticated Cookie request header.</p>
+            <p id="account-modal-description">
+    Paste the authenticated Cookie request header.
+</p>
           </div>
 
           <button id="close-account-modal" class="icon-button" type="button">
@@ -324,7 +326,6 @@
               id="account-cookie"
               rows="9"
               placeholder="Paste Cookie header value here..."
-              required
             ></textarea>
 
             <small class="field-help">
@@ -342,7 +343,9 @@
               Cancel
             </button>
 
-            <button type="submit" class="primary-button">Save Account</button>
+            <button id="account-submit-button" type="submit" class="primary-button">
+    Save Account
+</button>
           </div>
         </form>
       </div>

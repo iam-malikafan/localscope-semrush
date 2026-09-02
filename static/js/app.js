@@ -30,6 +30,16 @@ const accountModal = document.getElementById("account-modal");
 
 const accountForm = document.getElementById("account-form");
 
+const accountModalTitle = document.getElementById("account-modal-title");
+
+const accountModalDescription = document.getElementById(
+  "account-modal-description",
+);
+
+const accountSubmitButton = document.getElementById(
+  "account-submit-button",
+);
+
 const accountNameInput = document.getElementById("account-name");
 
 const accountCookieInput = document.getElementById("account-cookie");
@@ -45,11 +55,14 @@ const toast = document.getElementById("toast");
 const toastMessage = document.getElementById("toast-message");
 
 
+
 /* =========================================================
    State
    ========================================================= */
 
 let accounts = [];
+
+let editingAccountId = null;
 
 let toastTimeout = null;
 
@@ -249,6 +262,13 @@ function renderAccounts() {
                         </button>
 
                         <button
+                            class="account-action-button"
+                            data-account-edit="${account.id}"
+                        >
+                            Edit
+                        </button>
+
+                        <button
                             class="danger-button"
                             data-account-delete="${account.id}"
                         >
@@ -266,23 +286,23 @@ function renderAccounts() {
 }
 
 function formatHealth(
-    health
+  health
 ) {
 
-    switch (health) {
+  switch (health) {
 
-        case "healthy":
-            return "Healthy";
+    case "healthy":
+      return "Healthy";
 
-        case "expired":
-            return "Expired";
+    case "expired":
+      return "Expired";
 
-        case "error":
-            return "Error";
+    case "error":
+      return "Error";
 
-        default:
-            return "Unknown";
-    }
+    default:
+      return "Unknown";
+  }
 }
 
 /*
@@ -320,6 +340,12 @@ function bindAccountButtons() {
   document.querySelectorAll("[data-account-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       await deleteAccount(button.dataset.accountDelete);
+    });
+  });
+
+  document.querySelectorAll("[data-account-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openEditAccount(button.dataset.accountEdit);
     });
   });
 }
@@ -420,6 +446,45 @@ async function deleteAccount(accountId) {
    ========================================================= */
 
 function openAccountModal() {
+  editingAccountId = null;
+
+  accountModalTitle.textContent = "Add Semrush Account";
+  accountModalDescription.textContent =
+    "Paste the authenticated Cookie request header.";
+  accountSubmitButton.textContent = "Save Account";
+
+  accountForm.reset();
+
+  accountModal.classList.remove("hidden");
+
+  setTimeout(() => {
+    accountNameInput.focus();
+  }, 40);
+}
+
+function openEditAccount(accountId) {
+  const account = accounts.find((item) => item.id === accountId);
+
+  if (!account) {
+    showToast("Account not found.", "error");
+    return;
+  }
+
+  editingAccountId = accountId;
+
+  accountModalTitle.textContent = "Edit Semrush Account";
+  accountModalDescription.textContent =
+    "Update the account details. Leave Cookie and proxy credentials blank to keep the existing values.";
+  accountSubmitButton.textContent = "Save Changes";
+
+  accountForm.reset();
+
+  accountNameInput.value = account.name || "";
+
+  proxySchemeInput.value = account.proxy_scheme || "http";
+  proxyHostInput.value = account.proxy_host || "";
+  proxyPortInput.value = account.proxy_port || "";
+
   accountModal.classList.remove("hidden");
 
   setTimeout(() => {
@@ -431,6 +496,8 @@ function closeAccountModal() {
   accountModal.classList.add("hidden");
 
   accountForm.reset();
+
+  editingAccountId = null;
 }
 
 document
@@ -455,8 +522,8 @@ accountForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
   const name = accountNameInput.value.trim();
-
   const cookie = accountCookieInput.value.trim();
+
   const proxyScheme = proxySchemeInput.value;
   const proxyHost = proxyHostInput.value.trim();
   const proxyPort = proxyPortInput.value.trim();
@@ -465,65 +532,96 @@ accountForm.addEventListener("submit", async (event) => {
 
   if (!name) {
     showToast("Account name is required.", "error");
-
     return;
   }
 
-  if (!cookie) {
+  if (!editingAccountId && !cookie) {
     showToast("Cookie is required.", "error");
-
     return;
   }
 
   if (!proxyHost || !proxyPort) {
     showToast("Proxy host and port are required.", "error");
-
     return;
   }
 
-  if ((proxyUsername && !proxyPassword) || (!proxyUsername && proxyPassword)) {
-    showToast("Both proxy username and password are required.", "error");
-
+  if (
+    (proxyUsername && !proxyPassword) ||
+    (!proxyUsername && proxyPassword)
+  ) {
+    showToast(
+      "Both proxy username and password are required.",
+      "error",
+    );
     return;
   }
 
   try {
-    const response = await fetch(API.accounts, {
-      method: "POST",
+    const isEditing = Boolean(editingAccountId);
 
+    const url = isEditing
+      ? `${API.accounts}/${editingAccountId}`
+      : API.accounts;
+
+    const method = isEditing ? "PUT" : "POST";
+
+    const body = {
+      name,
+      proxy_scheme: proxyScheme,
+      proxy_host: proxyHost,
+      proxy_port: proxyPort,
+      proxy_username: proxyUsername,
+      proxy_password: proxyPassword,
+    };
+
+    if (cookie) {
+      body.cookie = cookie;
+    }
+
+    const response = await fetch(url, {
+      method,
       headers: {
         "Content-Type": "application/json",
       },
-
-      body: JSON.stringify({
-        name,
-        cookie,
-        proxy_scheme: proxyScheme,
-        proxy_host: proxyHost,
-        proxy_port: proxyPort,
-        proxy_username: proxyUsername,
-        proxy_password: proxyPassword,
-      }),
+      body: JSON.stringify(body),
     });
 
     const result = await response.json();
 
     if (!response.ok) {
-      throw new Error(result.error || "Could not add account.");
+      throw new Error(
+        result.error ||
+          (isEditing
+            ? "Could not update account."
+            : "Could not add account."),
+      );
     }
 
     closeAccountModal();
 
-    showToast("Account added successfully.", "success");
+    showToast(
+      isEditing
+        ? "Account updated successfully."
+        : "Account added successfully.",
+      "success",
+    );
 
     await loadAccounts();
   } catch (error) {
-    console.error("Add account failed:", error);
+    console.error(
+      isEditing ? "Edit account failed:" : "Add account failed:",
+      error,
+    );
 
-    showToast(error.message || "Could not add account.", "error");
+    showToast(
+      error.message ||
+        (isEditing
+          ? "Could not update account."
+          : "Could not add account."),
+      "error",
+    );
   }
 });
-
 /* =========================================================
    Overview
    ========================================================= */
