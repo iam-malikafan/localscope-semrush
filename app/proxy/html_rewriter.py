@@ -1,9 +1,11 @@
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import json
+
 from app.proxy.url_mapper import (
     map_upstream_url_to_local,
 )
+
 from app.policies.access_rules import (
     HIDDEN_LINK_PATTERNS,
     HIDDEN_SELECTORS,
@@ -21,6 +23,10 @@ def rewrite_html(
         html,
         "html.parser",
     )
+
+    # =========================================================
+    # URL rewriting
+    # =========================================================
 
     attributes = [
         ("a", "href"),
@@ -57,29 +63,13 @@ def rewrite_html(
                 continue
 
             # Resolve every URL first.
-            #
-            # Examples:
-            #
-            # /assets/app.js
-            # ./app.js
-            # ../app.js
-            # https://github.com/page
-            # https://github.githubassets.com/app.js
-            # //cdn.example.com/app.js
-            #
-            # all become absolute real URLs here.
             absolute_url = urljoin(
                 upstream_url,
                 value,
             )
 
-            # Then let ONE central mapper
-            # decide whether it belongs to:
-            #
-            # /proxy/...
-            #
-            # or
-            #
+            # Central URL mapper decides whether
+            # the URL becomes /proxy/... or
             # /proxy-external/...
             mapped_url = map_upstream_url_to_local(
                 absolute_url=absolute_url,
@@ -88,14 +78,18 @@ def rewrite_html(
 
             tag[attribute] = mapped_url
 
+            # Original integrity hashes no longer match
+            # rewritten resources.
             if tag.has_attr("integrity"):
                 del tag["integrity"]
 
-    # -------------------------
-    # srcset
-    # -------------------------
+    # =========================================================
+    # srcset rewriting
+    # =========================================================
 
-    for tag in soup.find_all(["img", "source"]):
+    for tag in soup.find_all(
+        ["img", "source"]
+    ):
 
         srcset = tag.get("srcset")
 
@@ -113,12 +107,17 @@ def rewrite_html(
 
             url = parts[0]
 
-            descriptor = " ".join(parts[1:])
+            descriptor = " ".join(
+                parts[1:]
+            )
 
-            if url.startswith("data:") or url.startswith("blob:"):
-
-                rewritten_items.append(item.strip())
-
+            if (
+                url.startswith("data:")
+                or url.startswith("blob:")
+            ):
+                rewritten_items.append(
+                    item.strip()
+                )
                 continue
 
             absolute_url = urljoin(
@@ -132,41 +131,48 @@ def rewrite_html(
             )
 
             if descriptor:
-                mapped_url += f" {descriptor}"
+                mapped_url += (
+                    f" {descriptor}"
+                )
 
-            rewritten_items.append(mapped_url)
+            rewritten_items.append(
+                mapped_url
+            )
 
-        tag["srcset"] = ", ".join(rewritten_items)
+        tag["srcset"] = ", ".join(
+            rewritten_items
+        )
 
-    # -------------------------
+    # =========================================================
     # CSP meta tags
-    # -------------------------
+    # =========================================================
 
-    # The upstream site's CSP normally
-    # expects its original domains.
+    # The upstream site's CSP normally expects
+    # its original domains.
     #
-    # LocalScope rewrites resources to
-    # localhost, so the original CSP can
-    # block those rewritten resources.
-    #
-    # We remove CSP meta tags in the
-    # proxy-compatible mode.
+    # LocalScope rewrites resources to local
+    # proxy URLs, so the original CSP can block
+    # those rewritten resources.
     for meta in soup.find_all(
         "meta",
         attrs={
-            "http-equiv": lambda value: value
-            and value.lower() == "content-security-policy"
+            "http-equiv": lambda value:
+                value
+                and value.lower()
+                == "content-security-policy"
         },
     ):
         meta.decompose()
 
-    # -------------------------
+    # =========================================================
     # LocalScope runtime proxy
-    # -------------------------
+    # =========================================================
 
     if not soup.find(
         "script",
-        attrs={"data-localscope-runtime": "true"},
+        attrs={
+            "data-localscope-runtime": "true"
+        },
     ):
 
         runtime_script = soup.new_tag(
@@ -174,52 +180,47 @@ def rewrite_html(
             src="/localscope/static/js/runtime_proxy.js",
         )
 
-        runtime_script["data-localscope-runtime"] = "true"
+        runtime_script[
+            "data-localscope-runtime"
+        ] = "true"
 
-        runtime_script["data-upstream-url"] = upstream_url
+        runtime_script[
+            "data-upstream-url"
+        ] = upstream_url
 
-        # Must be injected before the
-        # website's own scripts whenever
-        # possible.
+        # Inject before the site's own scripts
+        # whenever possible.
         if soup.head:
 
-            soup.head.insert(0, runtime_script)
+            soup.head.insert(
+                0,
+                runtime_script,
+            )
 
         else:
 
-            soup.insert(0, runtime_script)
+            soup.insert(
+                0,
+                runtime_script,
+            )
 
-        # -------------------------
-    # LocalScope runtime proxy
-    # -------------------------
+    # =========================================================
+    # LocalScope access UI configuration
+    # =========================================================
 
-    if not soup.find(
-        "script",
-        attrs={"data-localscope-runtime": "true"},
-    ):
+    hidden_patterns_json = json.dumps(
+        HIDDEN_LINK_PATTERNS
+    )
 
-        runtime_script = soup.new_tag(
-            "script",
-            src="/localscope/static/js/runtime_proxy.js",
-        )
+    hidden_selectors_json = json.dumps(
+        HIDDEN_SELECTORS
+    )
 
-        runtime_script["data-localscope-runtime"] = "true"
-        runtime_script["data-upstream-url"] = upstream_url
-
-        if soup.head:
-            soup.head.insert(0, runtime_script)
-        else:
-            soup.insert(0, runtime_script)
-
-    # -------------------------
-    # LocalScope access UI
-    # -------------------------
-
-    hidden_patterns_json = json.dumps(HIDDEN_LINK_PATTERNS)
-
+    # User name returned by authcheck.
     user_name = ""
 
     if user:
+
         user_name = (
             user.get("name")
             or user.get("username")
@@ -227,9 +228,13 @@ def rewrite_html(
             or ""
         )
 
-    user_name_json = json.dumps(user_name)
+    user_name_json = json.dumps(
+        user_name
+    )
 
-    hidden_selectors_json = json.dumps(HIDDEN_SELECTORS)
+    # =========================================================
+    # JavaScript access-control UI
+    # =========================================================
 
     access_script_code = f"""
         (() => {{
@@ -241,107 +246,205 @@ def rewrite_html(
                 {hidden_selectors_json};
 
 
+            // =================================================
+            // Unwanted top-level SEMrush navigation
+            // =================================================
 
-            function applyLocalScopeUI() {{
+            const blockedNavigationLabels = [
+                "Start free trial",
+                "Enterprise",
+                "More",
 
-                // RankyTools header.
-                if (
-                    !document.getElementById(
-                        "rankytools-header"
-                    )
-                ) {{
-                    const header =
-                        document.createElement("div");
+                "Traffic & Market",
+                "Local",
+                "Content",
+                "Advertising",
+                "Ad",
+                "AI PR",
+                "Social",
+                "Reports",
+                "Apps"
+            ];
 
-                    header.id =
-                        "rankytools-header";
 
-                    const userName =
-                        {user_name_json};
+            // =================================================
+            // Helper: normalize visible text
+            // =================================================
 
-                    const brand =
-                        document.createElement("strong");
+            function normalizeText(text) {{
 
-                    brand.textContent =
-                        "RANKYTOOLS";
+                return (text || "")
+                    .replace(/\\\\s+/g, " ")
+                    .trim()
+                    .toLowerCase();
+            }}
 
-                    const tool =
-                        document.createElement("span");
 
-                    tool.textContent =
-                        "SEMrush";
+            // =================================================
+            // Hide an element safely
+            // =================================================
 
-                    const user =
-                        document.createElement("span");
+            function hideElement(element) {{
 
-                    user.textContent =
-                        userName;
-
-                    const left =
-                        document.createElement("div");
-
-                    left.appendChild(brand);
-                    left.appendChild(tool);
-
-                    const right =
-                        document.createElement("div");
-
-                    right.appendChild(user);
-
-                    header.appendChild(left);
-                    header.appendChild(right);
-
-                    header.style.cssText = `
-                        position: sticky;
-                        top: 0;
-                        z-index: 2147483647;
-                        width: 100%;
-                        box-sizing: border-box;
-                        display: flex;
-                        align-items: center;
-                        justify-content: space-between;
-                        padding: 10px 20px;
-                        background: #111827;
-                        color: white;
-                        font-family: Arial, sans-serif;
-                        font-size: 14px;
-                    `;
-
-                    document.body.prepend(header);
+                if (!element) {{
+                    return;
                 }}
 
-                // Hide links by URL pattern.
+                element.style.setProperty(
+                    "display",
+                    "none",
+                    "important"
+                );
+            }}
+
+
+            // =================================================
+            // Hide unwanted top-level navigation
+            // =================================================
+
+            function hideBlockedNavigation() {{
+
+                const blockedLabels =
+                    blockedNavigationLabels.map(
+                        normalizeText
+                    );
+
+
+                // ---------------------------------------------
+                // Links
+                // ---------------------------------------------
+
+                document
+                    .querySelectorAll("a")
+                    .forEach((element) => {{
+
+                        const text =
+                            normalizeText(
+                                element.textContent
+                            );
+
+                        if (
+                            !blockedLabels.includes(text)
+                        ) {{
+                            return;
+                        }}
+
+
+                        /*
+                         * Do not blindly remove the whole
+                         * navigation tree.
+                         *
+                         * Hide the actual clickable item.
+                         */
+                        hideElement(element);
+                    }});
+
+
+                // ---------------------------------------------
+                // Buttons
+                // ---------------------------------------------
+
+                document
+                    .querySelectorAll("button")
+                    .forEach((element) => {{
+
+                        const text =
+                            normalizeText(
+                                element.textContent
+                            );
+
+                        if (
+                            !blockedLabels.includes(text)
+                        ) {{
+                            return;
+                        }}
+
+                        hideElement(element);
+                    }});
+
+
+                // ---------------------------------------------
+                // Elements using role="button"
+                // ---------------------------------------------
+
+                document
+                    .querySelectorAll(
+                        '[role="button"]'
+                    )
+                    .forEach((element) => {{
+
+                        const text =
+                            normalizeText(
+                                element.textContent
+                            );
+
+                        if (
+                            !blockedLabels.includes(text)
+                        ) {{
+                            return;
+                        }}
+
+                        hideElement(element);
+                    }});
+            }}
+
+
+            // =================================================
+            // Hide links by URL pattern
+            // =================================================
+
+            function hideBlockedLinks() {{
+
                 document
                     .querySelectorAll("a[href]")
                     .forEach((element) => {{
 
                         const href =
-                            element.getAttribute("href") || "";
+                            element.getAttribute(
+                                "href"
+                            ) || "";
 
                         const blocked =
                             blockedPatterns.some(
                                 (pattern) =>
-                                    href.includes(pattern)
+                                    href.includes(
+                                        pattern
+                                    )
                             );
 
                         if (blocked) {{
-                            element.style.display = "none";
+
+                            hideElement(
+                                element
+                            );
                         }}
                     }});
+            }}
 
 
-                // Hide elements by explicit selector.
+            // =================================================
+            // Hide elements by explicit selector
+            // =================================================
+
+            function hideConfiguredSelectors() {{
+
                 hiddenSelectors.forEach(
                     (selector) => {{
 
                         try {{
 
                             document
-                                .querySelectorAll(selector)
-                                .forEach((element) => {{
-                                    element.style.display =
-                                        "none";
-                                }});
+                                .querySelectorAll(
+                                    selector
+                                )
+                                .forEach(
+                                    (element) => {{
+
+                                        hideElement(
+                                            element
+                                        );
+                                    }}
+                                );
 
                         }} catch (error) {{
 
@@ -352,13 +455,148 @@ def rewrite_html(
                         }}
                     }}
                 );
-
-
             }}
 
 
+            // =================================================
+            // RankyTools header
+            // =================================================
+
+            function createRankyToolsHeader() {{
+
+                if (
+                    document.getElementById(
+                        "rankytools-header"
+                    )
+                ) {{
+                    return;
+                }}
+
+
+                if (!document.body) {{
+                    return;
+                }}
+
+
+                const header =
+                    document.createElement(
+                        "div"
+                    );
+
+                header.id =
+                    "rankytools-header";
+
+
+                const userName =
+                    {user_name_json};
+
+
+                const brand =
+                    document.createElement(
+                        "strong"
+                    );
+
+                brand.textContent =
+                    "RANKYTOOLS";
+
+
+                const tool =
+                    document.createElement(
+                        "span"
+                    );
+
+                tool.textContent =
+                    "SEMrush";
+
+
+                const user =
+                    document.createElement(
+                        "span"
+                    );
+
+                user.textContent =
+                    userName;
+
+
+                const left =
+                    document.createElement(
+                        "div"
+                    );
+
+                left.appendChild(
+                    brand
+                );
+
+                left.appendChild(
+                    tool
+                );
+
+
+                const right =
+                    document.createElement(
+                        "div"
+                    );
+
+                right.appendChild(
+                    user
+                );
+
+
+                header.appendChild(
+                    left
+                );
+
+                header.appendChild(
+                    right
+                );
+
+
+                header.style.cssText = `
+                    position: sticky;
+                    top: 0;
+                    z-index: 2147483647;
+                    width: 100%;
+                    box-sizing: border-box;
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    padding: 10px 20px;
+                    background: #111827;
+                    color: white;
+                    font-family: Arial, sans-serif;
+                    font-size: 14px;
+                `;
+
+
+                document.body.prepend(
+                    header
+                );
+            }}
+
+
+            // =================================================
+            // Apply LocalScope UI restrictions
+            // =================================================
+
+            function applyLocalScopeUI() {{
+
+                createRankyToolsHeader();
+
+                hideBlockedNavigation();
+
+                hideBlockedLinks();
+
+                hideConfiguredSelectors();
+            }}
+
+
+            // =================================================
+            // Initial execution
+            // =================================================
+
             if (
-                document.readyState === "loading"
+                document.readyState
+                === "loading"
             ) {{
 
                 document.addEventListener(
@@ -372,31 +610,58 @@ def rewrite_html(
             }}
 
 
+            // =================================================
+            // Handle dynamically rendered SEMrush UI
+            // =================================================
+
             const observer =
                 new MutationObserver(
-                    applyLocalScopeUI
+                    () => {{
+
+                        applyLocalScopeUI();
+
+                    }}
                 );
 
-            observer.observe(
-                document.documentElement,
-                {{
-                    childList: true,
-                    subtree: true
-                }}
-            );
+
+            if (
+                document.documentElement
+            ) {{
+
+                observer.observe(
+                    document.documentElement,
+                    {{
+                        childList: true,
+                        subtree: true
+                    }}
+                );
+            }}
 
         }})();
-        """
+    """
 
-    access_script = soup.new_tag("script")
+    access_script = soup.new_tag(
+        "script"
+    )
 
-    access_script["data-localscope-access-ui"] = "true"
+    access_script[
+        "data-localscope-access-ui"
+    ] = "true"
 
-    access_script.string = access_script_code
+    access_script.string = (
+        access_script_code
+    )
 
     if soup.body:
-        soup.body.append(access_script)
+
+        soup.body.append(
+            access_script
+        )
+
     else:
-        soup.append(access_script)
+
+        soup.append(
+            access_script
+        )
 
     return str(soup)
