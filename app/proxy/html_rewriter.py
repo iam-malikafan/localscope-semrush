@@ -561,7 +561,7 @@ def rewrite_html(
                     align-items: center;
                     justify-content: space-between;
                     padding: 10px 20px;
-                    background: #111827;
+                    background: #5E17EB;
                     color: white;
                     font-family: Arial, sans-serif;
                     font-size: 14px;
@@ -631,6 +631,23 @@ def rewrite_html(
                     }});
             }}
 
+            function hideProfileIcon() {{
+
+                const profileButton =
+                    document.querySelector(
+                        '[data-test="header-menu__user"]'
+                    );
+
+                if (profileButton) {{
+
+                    profileButton.style.setProperty(
+                        "display",
+                        "none",
+                        "important"
+                    );
+                }}
+            }}
+
 
             // =================================================
             // Apply LocalScope UI restrictions
@@ -647,6 +664,8 @@ def rewrite_html(
                 hideBlockedLinks();
 
                 hideConfiguredSelectors();
+
+                hideProfileIcon();
             }}
 
 
