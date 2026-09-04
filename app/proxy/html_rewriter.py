@@ -573,6 +573,64 @@ def rewrite_html(
                 );
             }}
 
+            function hideBlockedSidebarItems() {{
+
+                const blockedSidebarLabels = [
+                    "Traffic & Market",
+                    "Local",
+                    "Content",
+                    "Ad",
+                    "AI PR",
+                    "Social",
+                    "Reports",
+                    "Apps"
+                ];
+
+                document
+                    .querySelectorAll(
+                        "snav-sidebar-ribbon-item"
+                    )
+                    .forEach((element) => {{
+
+                        const label =
+                            (
+                                element.getAttribute("label")
+                                || ""
+                            )
+                            .trim()
+                            .toLowerCase();
+
+                        if (
+                            blockedSidebarLabels.some(
+                                (blockedLabel) =>
+                                    blockedLabel.toLowerCase()
+                                    === label
+                            )
+                        ) {{
+
+                            const listItem =
+                                element.closest("li");
+
+                            if (listItem) {{
+
+                                listItem.style.setProperty(
+                                    "display",
+                                    "none",
+                                    "important"
+                                );
+
+                            }} else {{
+
+                                element.style.setProperty(
+                                    "display",
+                                    "none",
+                                    "important"
+                                );
+                            }}
+                        }}
+                    }});
+            }}
+
 
             // =================================================
             // Apply LocalScope UI restrictions
@@ -583,6 +641,8 @@ def rewrite_html(
                 createRankyToolsHeader();
 
                 hideBlockedNavigation();
+
+                 hideBlockedSidebarItems();
 
                 hideBlockedLinks();
 
