@@ -6,7 +6,6 @@ from app.proxy.url_mapper import (
 )
 from app.policies.access_rules import (
     HIDDEN_LINK_PATTERNS,
-    HEADER_MESSAGE,
     HIDDEN_SELECTORS,
 )
 
@@ -15,6 +14,7 @@ def rewrite_html(
     html: str,
     upstream_url: str,
     target_base_url: str,
+    user: dict | None = None,
 ) -> str:
 
     soup = BeautifulSoup(
@@ -217,7 +217,17 @@ def rewrite_html(
 
     hidden_patterns_json = json.dumps(HIDDEN_LINK_PATTERNS)
 
-    header_message_json = json.dumps(HEADER_MESSAGE)
+    user_name = ""
+
+    if user:
+        user_name = (
+            user.get("name")
+            or user.get("username")
+            or user.get("email")
+            or ""
+        )
+
+    user_name_json = json.dumps(user_name)
 
     hidden_selectors_json = json.dumps(HIDDEN_SELECTORS)
 
@@ -230,11 +240,75 @@ def rewrite_html(
             const hiddenSelectors =
                 {hidden_selectors_json};
 
-            const headerMessage =
-                {header_message_json};
 
 
             function applyLocalScopeUI() {{
+
+                // RankyTools header.
+                if (
+                    !document.getElementById(
+                        "rankytools-header"
+                    )
+                ) {{
+                    const header =
+                        document.createElement("div");
+
+                    header.id =
+                        "rankytools-header";
+
+                    const userName =
+                        {user_name_json};
+
+                    const brand =
+                        document.createElement("strong");
+
+                    brand.textContent =
+                        "RANKYTOOLS";
+
+                    const tool =
+                        document.createElement("span");
+
+                    tool.textContent =
+                        "SEMrush";
+
+                    const user =
+                        document.createElement("span");
+
+                    user.textContent =
+                        userName;
+
+                    const left =
+                        document.createElement("div");
+
+                    left.appendChild(brand);
+                    left.appendChild(tool);
+
+                    const right =
+                        document.createElement("div");
+
+                    right.appendChild(user);
+
+                    header.appendChild(left);
+                    header.appendChild(right);
+
+                    header.style.cssText = `
+                        position: sticky;
+                        top: 0;
+                        z-index: 2147483647;
+                        width: 100%;
+                        box-sizing: border-box;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        padding: 10px 20px;
+                        background: #111827;
+                        color: white;
+                        font-family: Arial, sans-serif;
+                        font-size: 14px;
+                    `;
+
+                    document.body.prepend(header);
+                }}
 
                 // Hide links by URL pattern.
                 document
@@ -280,41 +354,6 @@ def rewrite_html(
                 );
 
 
-                // Banner.
-                if (
-                    headerMessage
-                    &&
-                    !document.getElementById(
-                        "localscope-banner"
-                    )
-                ) {{
-
-                    const banner =
-                        document.createElement("div");
-
-                    banner.id =
-                        "localscope-banner";
-
-                    banner.textContent =
-                        headerMessage;
-
-                    banner.style.cssText = `
-                        position: relative;
-                        z-index: 2147483647;
-                        width: 100%;
-                        box-sizing: border-box;
-                        padding: 8px 16px;
-                        background: #111827;
-                        color: white;
-                        text-align: center;
-                        font-family: Arial, sans-serif;
-                        font-size: 13px;
-                    `;
-
-                    document.body.prepend(
-                        banner
-                    );
-                }}
             }}
 
 

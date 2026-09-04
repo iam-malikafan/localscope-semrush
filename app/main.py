@@ -728,6 +728,7 @@ async def handle_proxy_request(
             target_base_url=(
                 request.app.state.target.base_url
             ),
+            user=request.state.user,
         )
 
         response_body = rewritten_html.encode("utf-8")
@@ -858,8 +859,8 @@ def blocked_response(
                     "access_restricted",
 
                 "message":
-                    "This action is not available "
-                    "through LocalScope.",
+                    "This page or action is not available "
+                    "through RankyTools.",
             },
         )
 

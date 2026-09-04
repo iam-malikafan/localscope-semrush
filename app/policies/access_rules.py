@@ -3,7 +3,44 @@
 # =========================================================
 
 
-# Pages the user should never open.
+# =========================================================
+# Allowed SEMrush page areas
+# =========================================================
+#
+# These are the only page areas users should be able to
+# navigate to through LocalScope.
+#
+# Supporting JS/CSS/API requests are NOT controlled by this
+# allowlist because this policy is only applied to documents.
+#
+
+ALLOWED_PAGE_PREFIXES = {
+    # Home
+    "/home/",
+
+    # SEO
+    "/seo/",
+    "/siteaudit/",
+    "/position-tracking/",
+    "/analytics/",
+    "/swa/",
+    "/topic-research/",
+    "/backlink_audit/",
+    "/sensor/",
+    "/proxy-external/",
+    "/on-page-seo-checker/",
+    "/organic_traffic_insights/",
+
+    # AI Visibility
+    "/ai-seo/",
+    "/content/",
+}
+
+
+# =========================================================
+# Pages the user should never open
+# =========================================================
+
 BLOCKED_PAGE_KEYWORDS = {
     "logout",
     "login",
@@ -37,7 +74,10 @@ BLOCKED_PAGE_KEYWORDS = {
 }
 
 
-# Mutating HTTP methods.
+# =========================================================
+# Mutating HTTP methods
+# =========================================================
+
 MUTATING_METHODS = {
     "POST",
     "PUT",
@@ -46,7 +86,10 @@ MUTATING_METHODS = {
 }
 
 
-# Keywords that indicate an account-changing action.
+# =========================================================
+# Keywords that indicate an account-changing action
+# =========================================================
+
 SENSITIVE_ACTION_KEYWORDS = {
     "logout",
 
@@ -75,7 +118,10 @@ SENSITIVE_ACTION_KEYWORDS = {
 }
 
 
-# Links that should disappear from the UI.
+# =========================================================
+# Links that should disappear from the UI
+# =========================================================
+
 HIDDEN_LINK_PATTERNS = [
     "/logout",
     "/pricing",
@@ -91,19 +137,19 @@ HIDDEN_LINK_PATTERNS = [
 
 # Explicit selectors can be added later
 # when you find buttons without href links.
+
 HIDDEN_SELECTORS = []
 
 
-HEADER_MESSAGE = (
-    "This account is managed through LocalScope. "
-    "Account settings and subscription management are restricted."
-)
 
+
+# =========================================================
+# Helpers
+# =========================================================
 
 def normalize_path(
     path: str,
 ) -> str:
-
     path = "/" + path.lstrip("/")
 
     return path.lower()
@@ -113,7 +159,6 @@ def path_contains_keyword(
     path: str,
     keywords: set[str],
 ) -> bool:
-
     normalized = normalize_path(
         path
     )
@@ -131,23 +176,56 @@ def path_contains_keyword(
     )
 
 
+def is_allowed_page(
+    path: str,
+) -> bool:
+    normalized = normalize_path(
+        path
+    )
+
+    return any(
+        normalized == prefix.rstrip("/")
+        or normalized.startswith(prefix)
+        for prefix in ALLOWED_PAGE_PREFIXES
+    )
+
+
+# =========================================================
+# Page blocking
+# =========================================================
+
 def is_blocked_page(
     method: str,
     path: str,
 ) -> bool:
 
-    # Only use the broad page rule for GET/HEAD.
+    # Only use page restrictions for GET/HEAD.
     if method.upper() not in {
         "GET",
         "HEAD",
     }:
         return False
 
-    return path_contains_keyword(
+    # First: page must belong to an allowed SEMrush area.
+    if not is_allowed_page(
+        path
+    ):
+        return True
+
+    # Second: even allowed areas can contain explicitly
+    # forbidden pages such as account/settings/billing.
+    if path_contains_keyword(
         path,
         BLOCKED_PAGE_KEYWORDS,
-    )
+    ):
+        return True
 
+    return False
+
+
+# =========================================================
+# Action blocking
+# =========================================================
 
 def is_blocked_action(
     method: str,
@@ -165,15 +243,18 @@ def is_blocked_action(
     )
 
 
+# =========================================================
+# Final access decision
+# =========================================================
+
 def is_access_blocked(
     method: str,
     path: str,
     is_document: bool = False,
 ) -> bool:
 
-    # Broad page restrictions only apply
-    # when the browser is actually navigating
-    # to a page.
+    # Page navigation:
+    # apply allowlist + blocked page keywords.
     if (
         is_document
         and is_blocked_page(
@@ -183,9 +264,8 @@ def is_access_blocked(
     ):
         return True
 
-    # Sensitive modifying actions are blocked
-    # regardless of whether they come from
-    # fetch/XHR or normal navigation.
+    # Sensitive modifying actions are blocked regardless
+    # of whether they come from fetch/XHR or navigation.
     if is_blocked_action(
         method,
         path,
