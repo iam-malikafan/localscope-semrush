@@ -47,6 +47,7 @@ from app.inspectors.stream_classifier import (
 
 from app.accounts.models import (
     create_account,
+    create_proxy,
 )
 from app.accounts.cookie_sync import (
     update_account_cookie,
@@ -78,6 +79,11 @@ from app.storage.database import (
     update_account_cookie as save_account_cookie,
     delete_account_from_database,
     update_account,
+    load_proxies,
+    save_proxy,
+    update_proxy,
+    update_proxy_enabled,
+    delete_proxy_from_database,
 )
 
 from app.security.auth_check import (
@@ -230,7 +236,8 @@ from app.security.auth_check import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.account_clients = {}
+    # One reusable HTTPX client per unique proxy URL.
+    app.state.proxy_clients = {}
 
     app.state.target = TargetConfig("https://www.semrush.com")
 
@@ -240,6 +247,13 @@ async def lifespan(app: FastAPI):
     app.state.accounts = (
         load_accounts()
     )
+
+    # Global proxy pool (shared by all accounts).
+    app.state.proxies = load_proxies()
+
+    # account_id -> proxy_id sticky assignment, plus round-robin cursor.
+    app.state.proxy_assignments = {}
+    app.state.next_proxy_index = 0
 
 
     app.state.account_assignments = {}
@@ -267,31 +281,101 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    for client in app.state.account_clients.values():
+    for client in app.state.proxy_clients.values():
         await client.aclose()
 
 
-async def get_account_client(app: FastAPI, account):
-    """Return the reusable HTTPX client bound to an account proxy."""
-    if not account.proxy_url:
-        raise RuntimeError("Account proxy is not configured")
+def usable_proxies(app: FastAPI) -> list:
+    """Global proxies that are enabled and not known to be broken.
 
-    client = app.state.account_clients.get(account.id)
+    A freshly added proxy is 'unknown' until checked; enabling one runs a
+    health check, so a working proxy becomes 'healthy'. We exclude only
+    proxies proven bad ('error' / 'expired') so nothing is stranded.
+    """
+    return [
+        proxy
+        for proxy in app.state.proxies
+        if proxy.enabled and proxy.health not in {"error", "expired"}
+    ]
+
+
+def find_proxy(app: FastAPI, proxy_id: str):
+    return next(
+        (proxy for proxy in app.state.proxies if proxy.id == proxy_id),
+        None,
+    )
+
+
+def assign_proxy_for_account(app: FastAPI, account):
+    """Return the proxy this account should use.
+
+    Assignment is sticky: an account keeps its proxy while that proxy stays
+    usable. New assignments are handed out round-robin across the usable
+    pool, so accounts spread evenly across proxies.
+    """
+    pool = usable_proxies(app)
+    if not pool:
+        return None
+
+    usable_ids = {proxy.id for proxy in pool}
+
+    # Keep the existing sticky assignment if it is still usable.
+    current_id = app.state.proxy_assignments.get(account.id)
+    if current_id in usable_ids:
+        return next(proxy for proxy in pool if proxy.id == current_id)
+
+    # Otherwise assign the next proxy in round-robin order.
+    index = app.state.next_proxy_index % len(pool)
+    chosen = pool[index]
+    app.state.next_proxy_index = index + 1
+
+    app.state.proxy_assignments[account.id] = chosen.id
+    return chosen
+
+
+def unassign_proxy(app: FastAPI, proxy_id: str):
+    """Drop sticky assignments pointing at a proxy (so accounts move off it)."""
+    for account_id in [
+        account_id
+        for account_id, assigned_id in app.state.proxy_assignments.items()
+        if assigned_id == proxy_id
+    ]:
+        app.state.proxy_assignments.pop(account_id, None)
+
+
+def get_proxy_client(app: FastAPI, proxy_url: str):
+    """Return the reusable HTTPX client bound to a specific proxy URL."""
+    client = app.state.proxy_clients.get(proxy_url)
     if client is None or client.is_closed:
         client = httpx.AsyncClient(
-            proxy=account.proxy_url,
+            proxy=proxy_url,
             follow_redirects=False,
             timeout=30.0,
         )
-        app.state.account_clients[account.id] = client
+        app.state.proxy_clients[proxy_url] = client
 
     return client
 
 
-async def close_account_client(app: FastAPI, account_id: str):
-    client = app.state.account_clients.pop(account_id, None)
-    if client is not None and not client.is_closed:
-        await client.aclose()
+async def get_account_client(app: FastAPI, account):
+    """Return an HTTPX client routed through the account's assigned proxy."""
+    proxy = assign_proxy_for_account(app, account)
+
+    if proxy is None:
+        raise RuntimeError("No enabled, healthy proxy is available")
+
+    return get_proxy_client(app, proxy.url)
+
+
+async def prune_proxy_clients(app: FastAPI):
+    """Close HTTPX clients whose proxy URL is no longer in the pool."""
+    referenced = {proxy.url for proxy in app.state.proxies}
+
+    for url in list(app.state.proxy_clients.keys()):
+        if url not in referenced:
+            client = app.state.proxy_clients.pop(url)
+            if client is not None and not client.is_closed:
+                await client.aclose()
 
 
 def build_proxy_url(data: dict) -> str | None:
@@ -475,9 +559,16 @@ async def handle_proxy_request(
                 account.id
             )
 
+            try:
+                client = await get_account_client(request.app, account)
+            except RuntimeError:
+                # No usable proxy right now: skip re-auth and let the main
+                # handler fall through to the unavailable response.
+                break
+
             health, status_code = (
                 await check_account_health(
-                    client=await get_account_client(request.app, account),
+                    client=client,
                     cookie=account.cookie,
                 )
             )
@@ -729,6 +820,7 @@ async def handle_proxy_request(
                 request.app.state.target.base_url
             ),
             user=request.state.user,
+            account_name=(account.name if account else ""),
         )
 
         response_body = rewritten_html.encode("utf-8")
@@ -1127,8 +1219,10 @@ async def websocket_proxy(
         await websocket.close(code=1013, reason="No Semrush account available")
         return
 
-    if not account.proxy_url:
-        await websocket.close(code=1013, reason="Account proxy is not configured")
+    ws_proxy = assign_proxy_for_account(websocket.app, account)
+
+    if ws_proxy is None:
+        await websocket.close(code=1013, reason="No enabled, healthy proxy is available")
         return
 
     requested_protocols = (
@@ -1171,7 +1265,7 @@ async def websocket_proxy(
         async with connect(
             target_url,
             origin=upstream_origin,
-            proxy=account.proxy_url,
+            proxy=ws_proxy.url,
             subprotocols=(
                 subprotocols
                 if subprotocols
@@ -1296,15 +1390,6 @@ async def add_account(
         .strip()
     )
 
-    try:
-        proxy_url = build_proxy_url(data)
-    except ValueError as error:
-        return JSONResponse(
-            status_code=400,
-            content={"error": str(error)},
-        )
-
-
     if not name:
 
         return JSONResponse(
@@ -1326,16 +1411,9 @@ async def add_account(
             },
         )
 
-    if not proxy_url:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "Proxy configuration is required"},
-        )
-
     account = create_account(
         name=name,
         cookie=cookie,
-        proxy_url=proxy_url,
     )
 
     request.app.state.accounts.append(
@@ -1395,69 +1473,16 @@ async def edit_account(
                 content={"error": "Cookie cannot be empty when provided"},
             )
 
-    proxy_url = None
-
-    proxy_fields_present = any(
-        field in data
-        for field in (
-            "proxy_scheme",
-            "proxy_host",
-            "proxy_port",
-            "proxy_username",
-            "proxy_password",
-        )
-    )
-
-    if proxy_fields_present:
-        proxy_username = str(data.get("proxy_username", "")).strip()
-        proxy_password = str(data.get("proxy_password", ""))
-
-        existing_proxy = urlsplit(account.proxy_url) if account.proxy_url else None
-
-        # If credentials are left blank during editing,
-        # keep the existing proxy credentials.
-        if existing_proxy and not proxy_username and not proxy_password:
-            proxy_username = existing_proxy.username or ""
-            proxy_password = (
-                unquote(existing_proxy.password)
-                if existing_proxy.password
-                else ""
-            )
-
-        proxy_data = {
-            "proxy_scheme": data.get("proxy_scheme", "http"),
-            "proxy_host": data.get("proxy_host", ""),
-            "proxy_port": data.get("proxy_port"),
-            "proxy_username": proxy_username,
-            "proxy_password": proxy_password,
-        }
-
-        try:
-            proxy_url = build_proxy_url(proxy_data)
-        except ValueError as error:
-            return JSONResponse(
-                status_code=400,
-                content={"error": str(error)},
-            )
-
-    old_proxy_url = account.proxy_url
-
-    if proxy_url is not None and proxy_url != old_proxy_url:
-        await close_account_client(request.app, account.id)
-
     account.name = name
 
     if cookie is not None:
         account.cookie = cookie
 
-    if proxy_url is not None:
-        account.proxy_url = proxy_url
-
     update_account(
         account_id=account.id,
         name=account.name,
         cookie=cookie,
-        proxy_url=proxy_url,
+        proxy_url=None,
     )
 
     return {
@@ -1483,6 +1508,18 @@ async def list_accounts(
         .account_assignments
     )
 
+    proxies_by_id = {
+        proxy.id: proxy
+        for proxy in request.app.state.proxies
+    }
+
+    proxy_assignments = request.app.state.proxy_assignments
+
+    def assigned_proxy_label(account_id):
+        proxy_id = proxy_assignments.get(account_id)
+        proxy = proxies_by_id.get(proxy_id) if proxy_id else None
+        return proxy.label if proxy else None
+
     return [
         {
             "id": account.id,
@@ -1497,16 +1534,7 @@ async def list_accounts(
                 == account.id
             ),
             "health": account.health,
-            "has_proxy": bool(account.proxy_url),
-            "proxy_host": (urlsplit(account.proxy_url).hostname if account.proxy_url else None),
-            "proxy_port": (urlsplit(account.proxy_url).port if account.proxy_url else None),
-            "proxy_scheme": (urlsplit(account.proxy_url).scheme if account.proxy_url else None),
-            "proxy_has_auth": bool(
-                account.proxy_url
-                and urlsplit(account.proxy_url).username
-            ),
-            "proxy_health": getattr(account, "proxy_health", "unknown"),
-            "proxy_status_code": getattr(account, "proxy_status_code", None),
+            "assigned_proxy": assigned_proxy_label(account.id),
             "last_status_code":
                 account.last_status_code,
         }
@@ -1515,37 +1543,273 @@ async def list_accounts(
         in request.app.state.accounts
     ]
 
-@app.post(
-    "/localscope/api/accounts/{account_id}/proxy-health"
+# =============================
+# PROXY POOL ROUTES (global Proxies tab)
+# =============================
+
+def _find_proxy(request: Request, proxy_id: str):
+    return next(
+        (proxy for proxy in request.app.state.proxies if proxy.id == proxy_id),
+        None,
+    )
+
+
+def _serialize_proxy(request: Request, proxy) -> dict:
+    parts = urlsplit(proxy.url)
+
+    assigned_accounts = sum(
+        1
+        for assigned_id in request.app.state.proxy_assignments.values()
+        if assigned_id == proxy.id
+    )
+
+    return {
+        "id": proxy.id,
+        "label": proxy.label,
+        "scheme": parts.scheme,
+        "host": parts.hostname,
+        "port": parts.port,
+        "has_auth": bool(parts.username),
+        "enabled": proxy.enabled,
+        "health": proxy.health,
+        "status_code": proxy.status_code,
+        "assigned_accounts": assigned_accounts,
+    }
+
+
+@app.get(
+    "/localscope/api/proxies"
 )
-async def proxy_health(
+async def list_proxies(
     request: Request,
-    account_id: str,
     _: None = Depends(require_admin),
 ):
-    for account in request.app.state.accounts:
-        if account.id == account_id:
-            if not account.proxy_url:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "Proxy is not configured"},
-                )
+    return [
+        _serialize_proxy(request, proxy)
+        for proxy in request.app.state.proxies
+    ]
 
-            health, status_code, message = await check_proxy_health(account.proxy_url)
-            account.proxy_health = health
-            account.proxy_status_code = status_code
 
-            return {
-                "id": account.id,
-                "proxy_health": health,
-                "proxy_status_code": status_code,
-                "message": message,
-            }
+@app.post(
+    "/localscope/api/proxies"
+)
+async def add_proxy(
+    request: Request,
+    _: None = Depends(require_admin),
+):
+    data = await request.json()
 
-    return JSONResponse(
-        status_code=404,
-        content={"error": "Account not found"},
+    try:
+        proxy_url = build_proxy_url(data)
+    except ValueError as error:
+        return JSONResponse(
+            status_code=400,
+            content={"error": str(error)},
+        )
+
+    if not proxy_url:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Proxy configuration is required"},
+        )
+
+    if any(proxy.url == proxy_url for proxy in request.app.state.proxies):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "This proxy is already in the pool."},
+        )
+
+    parts = urlsplit(proxy_url)
+    label = str(data.get("label", "")).strip() or f"{parts.hostname}:{parts.port}"
+
+    proxy = create_proxy(label=label, url=proxy_url)
+
+    request.app.state.proxies.append(proxy)
+    save_proxy(proxy)
+
+    return _serialize_proxy(request, proxy)
+
+
+@app.put(
+    "/localscope/api/proxies/{proxy_id}"
+)
+async def edit_proxy(
+    request: Request,
+    proxy_id: str,
+    _: None = Depends(require_admin),
+):
+    proxy = _find_proxy(request, proxy_id)
+
+    if proxy is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Proxy not found"},
+        )
+
+    data = await request.json()
+
+    label = str(data.get("label", "")).strip()
+
+    proxy_fields_present = any(
+        field in data
+        for field in (
+            "proxy_scheme",
+            "proxy_host",
+            "proxy_port",
+            "proxy_username",
+            "proxy_password",
+        )
     )
+
+    new_url = None
+    if proxy_fields_present:
+        try:
+            new_url = build_proxy_url(data)
+        except ValueError as error:
+            return JSONResponse(
+                status_code=400,
+                content={"error": str(error)},
+            )
+
+        if any(
+            other.url == new_url and other.id != proxy.id
+            for other in request.app.state.proxies
+        ):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "This proxy is already in the pool."},
+            )
+
+    if label:
+        proxy.label = label
+    elif new_url:
+        parts = urlsplit(new_url)
+        proxy.label = f"{parts.hostname}:{parts.port}"
+
+    if new_url is not None and new_url != proxy.url:
+        proxy.url = new_url
+        # Endpoint changed, so its health must be re-verified.
+        proxy.health = "unknown"
+        proxy.status_code = None
+
+    update_proxy(
+        proxy_id=proxy.id,
+        label=proxy.label,
+        url=(new_url if new_url is not None else None),
+    )
+
+    await prune_proxy_clients(request.app)
+
+    return _serialize_proxy(request, proxy)
+
+
+@app.post(
+    "/localscope/api/proxies/{proxy_id}/enable"
+)
+async def enable_proxy(
+    request: Request,
+    proxy_id: str,
+    _: None = Depends(require_admin),
+):
+    proxy = _find_proxy(request, proxy_id)
+
+    if proxy is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Proxy not found"},
+        )
+
+    proxy.enabled = True
+    update_proxy_enabled(proxy_id=proxy.id, enabled=True)
+
+    health, status_code, message = await check_proxy_health(proxy.url)
+    proxy.health = health
+    proxy.status_code = status_code
+
+    result = _serialize_proxy(request, proxy)
+    result["message"] = message
+    return result
+
+
+@app.post(
+    "/localscope/api/proxies/{proxy_id}/disable"
+)
+async def disable_proxy(
+    request: Request,
+    proxy_id: str,
+    _: None = Depends(require_admin),
+):
+    proxy = _find_proxy(request, proxy_id)
+
+    if proxy is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Proxy not found"},
+        )
+
+    proxy.enabled = False
+    update_proxy_enabled(proxy_id=proxy.id, enabled=False)
+
+    # Accounts on this proxy should move to another usable proxy.
+    unassign_proxy(request.app, proxy.id)
+
+    return _serialize_proxy(request, proxy)
+
+
+@app.post(
+    "/localscope/api/proxies/{proxy_id}/check"
+)
+async def check_proxy(
+    request: Request,
+    proxy_id: str,
+    _: None = Depends(require_admin),
+):
+    proxy = _find_proxy(request, proxy_id)
+
+    if proxy is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Proxy not found"},
+        )
+
+    health, status_code, message = await check_proxy_health(proxy.url)
+    proxy.health = health
+    proxy.status_code = status_code
+
+    # If it went bad, let assigned accounts fail over on their next request.
+    if health in {"error", "expired"}:
+        unassign_proxy(request.app, proxy.id)
+
+    result = _serialize_proxy(request, proxy)
+    result["message"] = message
+    return result
+
+
+@app.delete(
+    "/localscope/api/proxies/{proxy_id}"
+)
+async def delete_proxy(
+    request: Request,
+    proxy_id: str,
+    _: None = Depends(require_admin),
+):
+    proxy = _find_proxy(request, proxy_id)
+
+    if proxy is None:
+        return JSONResponse(
+            status_code=404,
+            content={"error": "Proxy not found"},
+        )
+
+    request.app.state.proxies = [
+        item for item in request.app.state.proxies if item.id != proxy_id
+    ]
+
+    delete_proxy_from_database(proxy_id)
+    unassign_proxy(request.app, proxy_id)
+    await prune_proxy_clients(request.app)
+
+    return {"id": proxy_id, "deleted": True}
 
 
 @app.post(
@@ -1663,7 +1927,7 @@ async def delete_account(
         if account.id == account_id:
 
             accounts.pop(index)
-            await close_account_client(request.app, account_id)
+            request.app.state.proxy_assignments.pop(account_id, None)
             delete_account_from_database(
                 account_id
             )
@@ -1773,5 +2037,3 @@ async def proxy_root_path(
         request=request,
         target_url=target_url,
     )
-
-

@@ -17,6 +17,7 @@ def rewrite_html(
     upstream_url: str,
     target_base_url: str,
     user: dict | None = None,
+    account_name: str = "",
 ) -> str:
 
     soup = BeautifulSoup(
@@ -216,20 +217,10 @@ def rewrite_html(
         HIDDEN_SELECTORS
     )
 
-    # User name returned by authcheck.
-    user_name = ""
-
-    if user:
-
-        user_name = (
-            user.get("name")
-            or user.get("username")
-            or user.get("email")
-            or ""
-        )
-
-    user_name_json = json.dumps(
-        user_name
+    # Account name from the LocalScope admin panel
+    # (the account assigned to this browser session).
+    account_name_json = json.dumps(
+        account_name or ""
     )
 
     # =========================================================
@@ -458,121 +449,6 @@ def rewrite_html(
             }}
 
 
-            // =================================================
-            // RankyTools header
-            // =================================================
-
-            function createRankyToolsHeader() {{
-
-                if (
-                    document.getElementById(
-                        "rankytools-header"
-                    )
-                ) {{
-                    return;
-                }}
-
-
-                if (!document.body) {{
-                    return;
-                }}
-
-
-                const header =
-                    document.createElement(
-                        "div"
-                    );
-
-                header.id =
-                    "rankytools-header";
-
-
-                const userName =
-                    {user_name_json};
-
-
-                const brand =
-                    document.createElement(
-                        "strong"
-                    );
-
-                brand.textContent =
-                    "RANKYTOOLS";
-
-
-                const tool =
-                    document.createElement(
-                        "span"
-                    );
-
-                tool.textContent =
-                    "SEMrush";
-
-
-                const user =
-                    document.createElement(
-                        "span"
-                    );
-
-                user.textContent =
-                    userName;
-
-
-                const left =
-                    document.createElement(
-                        "div"
-                    );
-
-                left.appendChild(
-                    brand
-                );
-
-                left.appendChild(
-                    tool
-                );
-
-
-                const right =
-                    document.createElement(
-                        "div"
-                    );
-
-                right.appendChild(
-                    user
-                );
-
-
-                header.appendChild(
-                    left
-                );
-
-                header.appendChild(
-                    right
-                );
-
-
-                header.style.cssText = `
-                    position: sticky;
-                    top: 0;
-                    z-index: 2147483647;
-                    width: 100%;
-                    box-sizing: border-box;
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    padding: 10px 20px;
-                    background: #5E17EB;
-                    color: white;
-                    font-family: Arial, sans-serif;
-                    font-size: 14px;
-                `;
-
-
-                document.body.prepend(
-                    header
-                );
-            }}
-
             function hideBlockedSidebarItems() {{
 
                 const blockedSidebarLabels = [
@@ -650,12 +526,122 @@ def rewrite_html(
 
 
             // =================================================
+            // RankyTools brand badge inside Semrush's own header
+            // (right side, where the profile icon used to be)
+            // =================================================
+
+            function createBrandBadge() {{
+
+                if (
+                    document.getElementById(
+                        "rankytools-brand"
+                    )
+                ) {{
+                    return;
+                }}
+
+
+                const accountName =
+                    {account_name_json};
+
+
+                const profileButton =
+                    document.querySelector(
+                        '[data-test="header-menu__user"]'
+                    );
+
+                if (!profileButton) {{
+                    return;
+                }}
+
+
+                const container =
+                    profileButton.parentElement;
+
+                if (!container) {{
+                    return;
+                }}
+
+
+                const badge =
+                    document.createElement(
+                        "div"
+                    );
+
+                badge.id =
+                    "rankytools-brand";
+
+
+                const brand =
+                    document.createElement(
+                        "span"
+                    );
+
+                brand.textContent =
+                    "Semrush by RankyTools";
+
+                brand.style.cssText = `
+                    font-weight: 700;
+                    white-space: nowrap;
+                `;
+
+                badge.appendChild(
+                    brand
+                );
+
+
+                if (accountName) {{
+
+                    const acct =
+                        document.createElement(
+                            "span"
+                        );
+
+                    acct.textContent =
+                        accountName;
+
+                    acct.style.cssText = `
+                        display: inline-flex;
+                        align-items: center;
+                        padding: 2px 10px;
+                        border-radius: 999px;
+                        background: rgba(94, 23, 235, 0.12);
+                        color: #5E17EB;
+                        font-weight: 600;
+                        white-space: nowrap;
+                    `;
+
+                    badge.appendChild(
+                        acct
+                    );
+                }}
+
+
+                badge.style.cssText = `
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-left: 12px;
+                    font-family: Arial, sans-serif;
+                    font-size: 13px;
+                    color: #0f0f0f;
+                `;
+
+
+                // Place it where the profile icon sat
+                // (right side of the native header).
+                container.insertBefore(
+                    badge,
+                    profileButton
+                );
+            }}
+
+
+            // =================================================
             // Apply LocalScope UI restrictions
             // =================================================
 
             function applyLocalScopeUI() {{
-
-                createRankyToolsHeader();
 
                 hideBlockedNavigation();
 
@@ -666,6 +652,8 @@ def rewrite_html(
                 hideConfiguredSelectors();
 
                 hideProfileIcon();
+
+                createBrandBadge();
             }}
 
 

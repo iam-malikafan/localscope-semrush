@@ -38,6 +38,12 @@
 
             <span> Accounts </span>
           </button>
+
+          <button class="nav-item" data-page="proxies">
+            <span class="nav-icon"> ⇄ </span>
+
+            <span> Proxies </span>
+          </button>
         </nav>
 
         <div class="sidebar-footer">
@@ -233,6 +239,44 @@
           </section>
         </section>
 
+        <!-- =====================================
+             PROXIES PAGE
+        ====================================== -->
+
+        <section id="page-proxies" class="admin-page">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Proxy Pool</h2>
+
+                <p>
+                  Enabled, healthy proxies are shared by all accounts and
+                  handed out round-robin so accounts spread evenly.
+                </p>
+              </div>
+
+              <button id="show-add-proxy" class="primary-button">
+                <span>＋</span>
+                Add Proxy
+              </button>
+            </div>
+
+            <div class="account-table-header">
+              <div>Proxy</div>
+
+              <div>Status</div>
+
+              <div>Accounts</div>
+
+              <div>Actions</div>
+            </div>
+
+            <div id="proxies-list" class="accounts-list">
+              <div class="loading-state">Loading proxies...</div>
+            </div>
+          </section>
+        </section>
+
       </main>
     </div>
 
@@ -266,6 +310,71 @@
               placeholder="Semrush Account 1"
               autocomplete="off"
               required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="account-cookie"> Cookie </label>
+
+            <textarea
+              id="account-cookie"
+              rows="9"
+              placeholder="Paste Cookie header value here..."
+            ></textarea>
+
+            <small class="field-help">
+              Cookie values remain server-side and are never displayed to
+              LocalScope users.
+            </small>
+          </div>
+
+          <div class="modal-actions">
+            <button
+              id="cancel-add-account"
+              type="button"
+              class="secondary-button"
+            >
+              Cancel
+            </button>
+
+            <button id="account-submit-button" type="submit" class="primary-button">
+    Save Account
+</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- =========================================
+     PROXIES MODAL
+========================================== -->
+
+    <div id="proxy-modal" class="modal-backdrop hidden">
+      <div class="modal">
+        <div class="modal-header">
+          <div>
+            <h2 id="proxy-modal-title">Add Proxy</h2>
+
+            <p id="proxy-modal-description">
+              Proxies are shared by all accounts. Credentials are encrypted and
+              never returned to the panel or to browser users.
+            </p>
+          </div>
+
+          <button id="close-proxy-modal" class="icon-button" type="button">
+            ×
+          </button>
+        </div>
+
+        <form id="proxy-form">
+          <div class="form-group">
+            <label for="proxy-label"> Label (optional) </label>
+
+            <input
+              id="proxy-label"
+              type="text"
+              placeholder="e.g. US residential 1"
+              autocomplete="off"
             />
           </div>
 
@@ -313,39 +422,17 @@
               />
             </div>
 
-            <small class="field-help">
-              Each account uses its own proxy. Proxy credentials are encrypted
-              before being stored and are never returned to browser users.
-            </small>
-          </div>
-
-          <div class="form-group">
-            <label for="account-cookie"> Cookie </label>
-
-            <textarea
-              id="account-cookie"
-              rows="9"
-              placeholder="Paste Cookie header value here..."
-            ></textarea>
-
-            <small class="field-help">
-              Cookie values remain server-side and are never displayed to
-              LocalScope users.
-            </small>
+            <small class="field-help" id="proxy-edit-help"></small>
           </div>
 
           <div class="modal-actions">
-            <button
-              id="cancel-add-account"
-              type="button"
-              class="secondary-button"
-            >
+            <button id="cancel-proxy" type="button" class="secondary-button">
               Cancel
             </button>
 
-            <button id="account-submit-button" type="submit" class="primary-button">
-    Save Account
-</button>
+            <button id="proxy-submit-button" type="submit" class="primary-button">
+              Add Proxy
+            </button>
           </div>
         </form>
       </div>

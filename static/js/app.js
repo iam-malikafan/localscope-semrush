@@ -2,14 +2,9 @@
    LocalScope Admin
    ========================================================= */
 
-/* =========================================================
-   API Configuration
-   ========================================================= */
-
 const API = {
   accounts: "/localscope/api/accounts",
-
-
+  proxies: "/localscope/api/proxies",
 };
 
 /* =========================================================
@@ -17,33 +12,28 @@ const API = {
    ========================================================= */
 
 const navItems = document.querySelectorAll(".nav-item");
-
 const pages = document.querySelectorAll(".admin-page");
-
 const pageTitle = document.getElementById("page-title");
-
 const pageDescription = document.getElementById("page-description");
 
 const accountsList = document.getElementById("accounts-list");
-
 const accountModal = document.getElementById("account-modal");
-
 const accountForm = document.getElementById("account-form");
-
 const accountModalTitle = document.getElementById("account-modal-title");
-
 const accountModalDescription = document.getElementById(
   "account-modal-description",
 );
-
-const accountSubmitButton = document.getElementById(
-  "account-submit-button",
-);
-
+const accountSubmitButton = document.getElementById("account-submit-button");
 const accountNameInput = document.getElementById("account-name");
-
 const accountCookieInput = document.getElementById("account-cookie");
 
+const proxiesList = document.getElementById("proxies-list");
+const proxyModal = document.getElementById("proxy-modal");
+const proxyForm = document.getElementById("proxy-form");
+const proxyModalTitle = document.getElementById("proxy-modal-title");
+const proxySubmitButton = document.getElementById("proxy-submit-button");
+const proxyEditHelp = document.getElementById("proxy-edit-help");
+const proxyLabelInput = document.getElementById("proxy-label");
 const proxySchemeInput = document.getElementById("proxy-scheme");
 const proxyHostInput = document.getElementById("proxy-host");
 const proxyPortInput = document.getElementById("proxy-port");
@@ -51,18 +41,17 @@ const proxyUsernameInput = document.getElementById("proxy-username");
 const proxyPasswordInput = document.getElementById("proxy-password");
 
 const toast = document.getElementById("toast");
-
 const toastMessage = document.getElementById("toast-message");
-
-
 
 /* =========================================================
    State
    ========================================================= */
 
 let accounts = [];
+let proxies = [];
 
 let editingAccountId = null;
+let editingProxyId = null;
 
 let toastTimeout = null;
 
@@ -75,10 +64,14 @@ const pageInformation = {
     title: "Overview",
     description: "Monitor and control your LocalScope proxy.",
   },
-
   accounts: {
     title: "Accounts",
     description: "Manage Semrush accounts available to LocalScope users.",
+  },
+  proxies: {
+    title: "Proxies",
+    description:
+      "Enabled, healthy proxies are shared by all accounts (round-robin).",
   },
 };
 
@@ -99,7 +92,6 @@ function openPage(pageName) {
 
   if (information) {
     pageTitle.textContent = information.title;
-
     pageDescription.textContent = information.description;
   }
 
@@ -107,6 +99,9 @@ function openPage(pageName) {
     loadAccounts();
   }
 
+  if (pageName === "proxies") {
+    loadProxies();
+  }
 }
 
 navItems.forEach((item) => {
@@ -133,9 +128,7 @@ document.querySelectorAll("[data-open-page]").forEach((button) => {
 
 async function loadAccounts() {
   try {
-    const response = await fetch(API.accounts, {
-      cache: "no-store",
-    });
+    const response = await fetch(API.accounts, { cache: "no-store" });
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -144,27 +137,21 @@ async function loadAccounts() {
     accounts = await response.json();
 
     renderAccounts();
-
     updateOverviewStats();
   } catch (error) {
     console.error("Failed to load accounts:", error);
 
     accountsList.innerHTML = `
-            <div class="empty-state">
-                Unable to load accounts.
-            </div>
-        `;
+      <div class="empty-state">Unable to load accounts.</div>
+    `;
   }
 }
 
 function renderAccounts() {
   if (!accounts.length) {
     accountsList.innerHTML = `
-            <div class="empty-state">
-                No Semrush accounts have been added yet.
-            </div>
-        `;
-
+      <div class="empty-state">No Semrush accounts have been added yet.</div>
+    `;
     return;
   }
 
@@ -173,167 +160,83 @@ function renderAccounts() {
       const initial = escapeHtml(
         account.name?.trim()?.charAt(0)?.toUpperCase() || "A",
       );
-
       const name = escapeHtml(account.name);
-
-      const userCount = getAccountUserCount(account.id);
+      const userCount = account.assigned_users || 0;
+      const assignedProxy = account.assigned_proxy
+        ? escapeHtml(account.assigned_proxy)
+        : "Unassigned";
 
       return `
+        <div class="account-row" data-account-id="${account.id}">
+          <div class="account-main">
+            <div class="account-avatar">${initial}</div>
+            <div class="account-name">
+              <strong>${name}</strong>
+              <small>ID: ${escapeHtml(account.id.slice(0, 8))}</small>
+            </div>
+          </div>
 
-                <div
-                    class="account-row"
-                    data-account-id="${account.id}"
-                >
+          <div class="account-state">
+            <span class="account-status ${account.enabled ? "enabled" : "disabled"}">
+              ${account.enabled ? "Enabled" : "Disabled"}
+            </span>
 
-                    <div class="account-main">
+            <span class="health-status health-${account.health || "unknown"}">
+              ${formatHealth(account.health)}
+            </span>
 
-                        <div class="account-avatar">
-                            ${initial}
-                        </div>
+            <small class="proxy-summary">Proxy: ${assignedProxy}</small>
+          </div>
 
-                        <div class="account-name">
+          <div class="account-users">
+            ${userCount} ${userCount === 1 ? "user" : "users"}
+          </div>
 
-                            <strong>
-                                ${name}
-                            </strong>
+          <div class="account-actions">
+            <button class="account-action-button"
+              data-account-toggle="${account.id}"
+              data-enabled="${account.enabled}">
+              ${account.enabled ? "Disable" : "Enable"}
+            </button>
 
-                            <small>
-                                ID: ${escapeHtml(account.id.slice(0, 8))}
-                            </small>
+            <button class="account-action-button"
+              data-account-edit="${account.id}">
+              Edit
+            </button>
 
-                        </div>
-
-                    </div>
-
-
-                    <div class="account-state">
-
-                        <span
-                            class="
-                                account-status
-                                ${account.enabled ? "enabled" : "disabled"}
-                            "
-                        >
-                            ${account.enabled ? "Enabled" : "Disabled"}
-                        </span>
-
-
-                        <span
-                            class="
-                                health-status
-                                health-${account.health || "unknown"}
-                            "
-                        >
-                            ${formatHealth(account.health)}
-                        </span>
-
-                        <small class="proxy-summary">
-                            Proxy: ${account.has_proxy ? `${escapeHtml(account.proxy_host)}:${escapeHtml(account.proxy_port)}` : "Not configured"}
-                            · ${formatHealth(account.proxy_health)}
-                        </small>
-
-                    </div>
-
-
-                    <div class="account-users">
-
-                        ${userCount}
-                        ${userCount === 1 ? "user" : "users"}
-
-                    </div>
-
-
-                    <div class="account-actions">
-
-                        <button
-                            class="account-action-button"
-                            data-proxy-health="${account.id}"
-                            ${account.has_proxy ? "" : "disabled"}
-                        >
-                            Check Proxy
-                        </button>
-
-                        <button
-                            class="account-action-button"
-                            data-account-toggle="${account.id}"
-                            data-enabled="${account.enabled}"
-                        >
-                            ${account.enabled ? "Disable" : "Enable"}
-                        </button>
-
-                        <button
-                            class="account-action-button"
-                            data-account-edit="${account.id}"
-                        >
-                            Edit
-                        </button>
-
-                        <button
-                            class="danger-button"
-                            data-account-delete="${account.id}"
-                        >
-                            Delete
-                        </button>
-
-                    </div>
-
-                </div>
-            `;
+            <button class="danger-button"
+              data-account-delete="${account.id}">
+              Delete
+            </button>
+          </div>
+        </div>
+      `;
     })
     .join("");
 
   bindAccountButtons();
 }
 
-function formatHealth(
-  health
-) {
-
+function formatHealth(health) {
   switch (health) {
-
     case "healthy":
       return "Healthy";
-
     case "expired":
       return "Expired";
-
     case "error":
       return "Error";
-
     default:
       return "Unknown";
   }
 }
 
-/*
- * We don't yet expose assignment counts
- * through an API, so this currently returns
- * zero.
- *
- * We'll connect this to real assignment data
- * in the next small backend step.
- */
-
-function getAccountUserCount(accountId) {
-  const account = accounts.find((item) => item.id === accountId);
-
-  return account?.assigned_users || 0;
-}
-
 function bindAccountButtons() {
   document.querySelectorAll("[data-account-toggle]").forEach((button) => {
     button.addEventListener("click", async () => {
-      const accountId = button.dataset.accountToggle;
-
-      const enabled = button.dataset.enabled === "true";
-
-      await toggleAccount(accountId, enabled);
-    });
-  });
-
-  document.querySelectorAll("[data-proxy-health]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      await checkProxyHealth(button.dataset.proxyHealth, button);
+      await toggleAccount(
+        button.dataset.accountToggle,
+        button.dataset.enabled === "true",
+      );
     });
   });
 
@@ -350,42 +253,6 @@ function bindAccountButtons() {
   });
 }
 
-async function checkProxyHealth(accountId, button) {
-  const originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "Checking...";
-
-  try {
-    const response = await fetch(`${API.accounts}/${accountId}/proxy-health`, {
-      method: "POST",
-    });
-
-    const result = await response.json();
-
-    if (!response.ok) {
-      throw new Error(result.error || "Proxy health check failed.");
-    }
-
-    if (result.proxy_health === "healthy") {
-      showToast(
-        `Proxy is healthy (Semrush HTTP ${result.proxy_status_code}).`,
-        "success",
-      );
-    } else {
-      showToast(result.message || "Proxy check failed.", "error");
-    }
-
-    await loadAccounts();
-  } catch (error) {
-    console.error("Proxy health check failed:", error);
-    showToast(error.message || "Could not check proxy.", "error");
-  } finally {
-    button.disabled = false;
-    button.textContent = originalText;
-  }
-}
-
-
 async function toggleAccount(accountId, currentlyEnabled) {
   const action = currentlyEnabled ? "disable" : "enable";
 
@@ -394,8 +261,10 @@ async function toggleAccount(accountId, currentlyEnabled) {
       method: "POST",
     });
 
+    const result = await response.json().catch(() => ({}));
+
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error(result.error || `HTTP ${response.status}`);
     }
 
     showToast(
@@ -406,19 +275,14 @@ async function toggleAccount(accountId, currentlyEnabled) {
     await loadAccounts();
   } catch (error) {
     console.error("Account update failed:", error);
-
-    showToast("Could not update account.", "error");
+    showToast(error.message || "Could not update account.", "error");
   }
 }
 
 async function deleteAccount(accountId) {
   const account = accounts.find((item) => item.id === accountId);
 
-  const confirmed = window.confirm(
-    `Delete "${account?.name || "this account"}"?`,
-  );
-
-  if (!confirmed) {
+  if (!window.confirm(`Delete "${account?.name || "this account"}"?`)) {
     return;
   }
 
@@ -432,17 +296,15 @@ async function deleteAccount(accountId) {
     }
 
     showToast("Account deleted.", "success");
-
     await loadAccounts();
   } catch (error) {
     console.error("Delete account failed:", error);
-
     showToast("Could not delete account.", "error");
   }
 }
 
 /* =========================================================
-   Add Account Modal
+   Account Modal
    ========================================================= */
 
 function openAccountModal() {
@@ -454,12 +316,9 @@ function openAccountModal() {
   accountSubmitButton.textContent = "Save Account";
 
   accountForm.reset();
-
   accountModal.classList.remove("hidden");
 
-  setTimeout(() => {
-    accountNameInput.focus();
-  }, 40);
+  setTimeout(() => accountNameInput.focus(), 40);
 }
 
 function openEditAccount(accountId) {
@@ -474,29 +333,19 @@ function openEditAccount(accountId) {
 
   accountModalTitle.textContent = "Edit Semrush Account";
   accountModalDescription.textContent =
-    "Update the account details. Leave Cookie and proxy credentials blank to keep the existing values.";
+    "Update the account. Leave Cookie blank to keep the existing value.";
   accountSubmitButton.textContent = "Save Changes";
 
   accountForm.reset();
-
   accountNameInput.value = account.name || "";
 
-  proxySchemeInput.value = account.proxy_scheme || "http";
-  proxyHostInput.value = account.proxy_host || "";
-  proxyPortInput.value = account.proxy_port || "";
-
   accountModal.classList.remove("hidden");
-
-  setTimeout(() => {
-    accountNameInput.focus();
-  }, 40);
+  setTimeout(() => accountNameInput.focus(), 40);
 }
 
 function closeAccountModal() {
   accountModal.classList.add("hidden");
-
   accountForm.reset();
-
   editingAccountId = null;
 }
 
@@ -521,107 +370,394 @@ accountModal.addEventListener("click", (event) => {
 accountForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
+  const isEditing = Boolean(editingAccountId);
   const name = accountNameInput.value.trim();
   const cookie = accountCookieInput.value.trim();
-
-  const proxyScheme = proxySchemeInput.value;
-  const proxyHost = proxyHostInput.value.trim();
-  const proxyPort = proxyPortInput.value.trim();
-  const proxyUsername = proxyUsernameInput.value.trim();
-  const proxyPassword = proxyPasswordInput.value;
 
   if (!name) {
     showToast("Account name is required.", "error");
     return;
   }
 
-  if (!editingAccountId && !cookie) {
+  if (!isEditing && !cookie) {
     showToast("Cookie is required.", "error");
     return;
   }
 
-  if (!proxyHost || !proxyPort) {
-    showToast("Proxy host and port are required.", "error");
-    return;
-  }
-
-  if (
-    (proxyUsername && !proxyPassword) ||
-    (!proxyUsername && proxyPassword)
-  ) {
-    showToast(
-      "Both proxy username and password are required.",
-      "error",
-    );
-    return;
-  }
-
   try {
-    const isEditing = Boolean(editingAccountId);
-
-    const url = isEditing
-      ? `${API.accounts}/${editingAccountId}`
-      : API.accounts;
-
+    const url = isEditing ? `${API.accounts}/${editingAccountId}` : API.accounts;
     const method = isEditing ? "PUT" : "POST";
 
-    const body = {
-      name,
-      proxy_scheme: proxyScheme,
-      proxy_host: proxyHost,
-      proxy_port: proxyPort,
-      proxy_username: proxyUsername,
-      proxy_password: proxyPassword,
-    };
-
+    const body = { name };
     if (cookie) {
       body.cookie = cookie;
     }
 
     const response = await fetch(url, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
-    const result = await response.json();
+    const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
       throw new Error(
         result.error ||
-          (isEditing
-            ? "Could not update account."
-            : "Could not add account."),
+          (isEditing ? "Could not update account." : "Could not add account."),
       );
     }
 
     closeAccountModal();
-
-    showToast(
-      isEditing
-        ? "Account updated successfully."
-        : "Account added successfully.",
-      "success",
-    );
-
+    showToast(isEditing ? "Account updated." : "Account added.", "success");
     await loadAccounts();
   } catch (error) {
-    console.error(
-      isEditing ? "Edit account failed:" : "Add account failed:",
-      error,
-    );
-
-    showToast(
-      error.message ||
-        (isEditing
-          ? "Could not update account."
-          : "Could not add account."),
-      "error",
-    );
+    console.error("Save account failed:", error);
+    showToast(error.message || "Could not save account.", "error");
   }
 });
+
+/* =========================================================
+   Proxies (global pool)
+   ========================================================= */
+
+async function loadProxies() {
+  try {
+    const response = await fetch(API.proxies, { cache: "no-store" });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    proxies = await response.json();
+    renderProxies();
+  } catch (error) {
+    console.error("Failed to load proxies:", error);
+
+    proxiesList.innerHTML = `
+      <div class="empty-state">Unable to load proxies.</div>
+    `;
+  }
+}
+
+function renderProxies() {
+  if (!proxies.length) {
+    proxiesList.innerHTML = `
+      <div class="empty-state">No proxies in the pool yet.</div>
+    `;
+    return;
+  }
+
+  proxiesList.innerHTML = proxies
+    .map((proxy) => {
+      const label = escapeHtml(proxy.label || `${proxy.host}:${proxy.port}`);
+      const endpoint = escapeHtml(
+        `${proxy.scheme}://${proxy.host}:${proxy.port}`,
+      );
+      const count = proxy.assigned_accounts || 0;
+      const authTag = proxy.has_auth
+        ? `<span class="proxy-tag">Auth</span>`
+        : "";
+
+      return `
+        <div class="account-row" data-proxy-id="${proxy.id}">
+          <div class="account-main">
+            <div class="account-avatar">&#8646;</div>
+            <div class="account-name">
+              <strong>${label}</strong>
+              <small>${endpoint} ${authTag}</small>
+            </div>
+          </div>
+
+          <div class="account-state">
+            <span class="account-status ${proxy.enabled ? "enabled" : "disabled"}">
+              ${proxy.enabled ? "Enabled" : "Disabled"}
+            </span>
+
+            <span class="health-status health-${proxy.health || "unknown"}">
+              ${formatHealth(proxy.health)}
+            </span>
+          </div>
+
+          <div class="account-users">
+            ${count} ${count === 1 ? "account" : "accounts"}
+          </div>
+
+          <div class="account-actions">
+            <button class="account-action-button"
+              data-proxy-check="${proxy.id}">
+              Check
+            </button>
+
+            <button class="account-action-button"
+              data-proxy-toggle="${proxy.id}"
+              data-enabled="${proxy.enabled}">
+              ${proxy.enabled ? "Disable" : "Enable"}
+            </button>
+
+            <button class="account-action-button"
+              data-proxy-edit="${proxy.id}">
+              Edit
+            </button>
+
+            <button class="danger-button"
+              data-proxy-delete="${proxy.id}">
+              Delete
+            </button>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  bindProxyButtons();
+}
+
+function bindProxyButtons() {
+  document.querySelectorAll("[data-proxy-toggle]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await toggleProxy(
+        button.dataset.proxyToggle,
+        button.dataset.enabled === "true",
+      );
+    });
+  });
+
+  document.querySelectorAll("[data-proxy-check]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await checkProxy(button.dataset.proxyCheck, button);
+    });
+  });
+
+  document.querySelectorAll("[data-proxy-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openEditProxy(button.dataset.proxyEdit);
+    });
+  });
+
+  document.querySelectorAll("[data-proxy-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await deleteProxy(button.dataset.proxyDelete);
+    });
+  });
+}
+
+async function toggleProxy(proxyId, currentlyEnabled) {
+  const action = currentlyEnabled ? "disable" : "enable";
+
+  try {
+    const response = await fetch(`${API.proxies}/${proxyId}/${action}`, {
+      method: "POST",
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.error || `HTTP ${response.status}`);
+    }
+
+    if (action === "enable" && result.health && result.health !== "healthy") {
+      showToast(
+        result.message || `Enabled, but proxy check failed (${result.health}).`,
+        "error",
+      );
+    } else {
+      showToast(
+        currentlyEnabled ? "Proxy disabled." : "Proxy enabled.",
+        "success",
+      );
+    }
+
+    await loadProxies();
+  } catch (error) {
+    console.error("Proxy update failed:", error);
+    showToast(error.message || "Could not update proxy.", "error");
+  }
+}
+
+async function checkProxy(proxyId, button) {
+  const originalText = button.textContent;
+  button.disabled = true;
+  button.textContent = "Checking...";
+
+  try {
+    const response = await fetch(`${API.proxies}/${proxyId}/check`, {
+      method: "POST",
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.error || "Proxy check failed.");
+    }
+
+    if (result.health === "healthy") {
+      showToast(
+        `Proxy is healthy (Semrush HTTP ${result.status_code}).`,
+        "success",
+      );
+    } else {
+      showToast(result.message || "Proxy check failed.", "error");
+    }
+
+    await loadProxies();
+  } catch (error) {
+    console.error("Proxy check failed:", error);
+    showToast(error.message || "Could not check proxy.", "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+async function deleteProxy(proxyId) {
+  const proxy = proxies.find((item) => item.id === proxyId);
+
+  if (!window.confirm(`Delete proxy "${proxy?.label || "this proxy"}"?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${API.proxies}/${proxyId}`, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    showToast("Proxy deleted.", "success");
+    await loadProxies();
+  } catch (error) {
+    console.error("Delete proxy failed:", error);
+    showToast("Could not delete proxy.", "error");
+  }
+}
+
+/* =========================================================
+   Proxy Modal
+   ========================================================= */
+
+function openAddProxy() {
+  editingProxyId = null;
+
+  proxyModalTitle.textContent = "Add Proxy";
+  proxySubmitButton.textContent = "Add Proxy";
+  proxyEditHelp.textContent = "";
+
+  proxyForm.reset();
+  proxyModal.classList.remove("hidden");
+
+  setTimeout(() => proxyHostInput.focus(), 40);
+}
+
+function openEditProxy(proxyId) {
+  const proxy = proxies.find((item) => item.id === proxyId);
+
+  if (!proxy) {
+    showToast("Proxy not found.", "error");
+    return;
+  }
+
+  editingProxyId = proxyId;
+
+  proxyModalTitle.textContent = "Edit Proxy";
+  proxySubmitButton.textContent = "Save Changes";
+
+  proxyForm.reset();
+  proxyLabelInput.value = proxy.label || "";
+  proxyEditHelp.textContent = `Current: ${proxy.scheme}://${proxy.host}:${proxy.port}. Leave proxy fields blank to keep it; fill them to replace it.`;
+
+  proxyModal.classList.remove("hidden");
+  setTimeout(() => proxyLabelInput.focus(), 40);
+}
+
+function closeProxyModal() {
+  proxyModal.classList.add("hidden");
+  proxyForm.reset();
+  editingProxyId = null;
+}
+
+document
+  .getElementById("show-add-proxy")
+  .addEventListener("click", openAddProxy);
+
+document
+  .getElementById("close-proxy-modal")
+  .addEventListener("click", closeProxyModal);
+
+document
+  .getElementById("cancel-proxy")
+  .addEventListener("click", closeProxyModal);
+
+proxyModal.addEventListener("click", (event) => {
+  if (event.target === proxyModal) {
+    closeProxyModal();
+  }
+});
+
+proxyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const isEditing = Boolean(editingProxyId);
+
+  const label = proxyLabelInput.value.trim();
+  const host = proxyHostInput.value.trim();
+  const port = proxyPortInput.value.trim();
+  const username = proxyUsernameInput.value.trim();
+  const password = proxyPasswordInput.value;
+
+  const body = { label };
+
+  const wantsProxyChange = Boolean(host || port);
+
+  // When adding, the proxy endpoint is mandatory.
+  if (!isEditing || wantsProxyChange) {
+    if (!host || !port) {
+      showToast("Proxy host and port are required.", "error");
+      return;
+    }
+
+    if ((username && !password) || (!username && password)) {
+      showToast("Both proxy username and password are required.", "error");
+      return;
+    }
+
+    body.proxy_scheme = proxySchemeInput.value;
+    body.proxy_host = host;
+    body.proxy_port = port;
+    body.proxy_username = username;
+    body.proxy_password = password;
+  }
+
+  try {
+    const url = isEditing ? `${API.proxies}/${editingProxyId}` : API.proxies;
+    const method = isEditing ? "PUT" : "POST";
+
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(
+        result.error ||
+          (isEditing ? "Could not update proxy." : "Could not add proxy."),
+      );
+    }
+
+    closeProxyModal();
+    showToast(isEditing ? "Proxy updated." : "Proxy added.", "success");
+    await loadProxies();
+  } catch (error) {
+    console.error("Save proxy failed:", error);
+    showToast(error.message || "Could not save proxy.", "error");
+  }
+});
+
 /* =========================================================
    Overview
    ========================================================= */
@@ -630,7 +766,6 @@ function updateOverviewStats() {
   const enabledAccounts = accounts.filter((account) => account.enabled);
 
   document.getElementById("stat-total-accounts").textContent = accounts.length;
-
   document.getElementById("stat-enabled-accounts").textContent =
     enabledAccounts.length;
 
@@ -640,10 +775,7 @@ function updateOverviewStats() {
   );
 
   document.getElementById("stat-browser-sessions").textContent = sessionCount;
-
-
 }
-
 
 /* =========================================================
    Toast
@@ -653,7 +785,6 @@ function showToast(message, type = "") {
   clearTimeout(toastTimeout);
 
   toastMessage.textContent = message;
-
   toast.className = "toast";
 
   if (type) {
@@ -673,20 +804,25 @@ function showToast(message, type = "") {
 
 function escapeHtml(value) {
   const element = document.createElement("div");
-
   element.textContent = String(value ?? "");
-
   return element.innerHTML;
 }
-
 
 /* =========================================================
    Keyboard
    ========================================================= */
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !accountModal.classList.contains("hidden")) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (!accountModal.classList.contains("hidden")) {
     closeAccountModal();
+  }
+
+  if (!proxyModal.classList.contains("hidden")) {
+    closeProxyModal();
   }
 });
 
@@ -695,9 +831,7 @@ document.addEventListener("keydown", (event) => {
    ========================================================= */
 
 async function initialize() {
-  await Promise.allSettled([loadAccounts()]);
-
-  updateOverviewStats();
+  await loadAccounts();
 }
 
 initialize();
